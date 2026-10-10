@@ -53,7 +53,7 @@ async function load() {
   try { data = await api("analytics", { subject: F.subject }); }
   catch (e) { if (e.code !== "signin") document.getElementById("body").innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
   const s = data.lastSync ? new Date(data.lastSync) : null;
-  document.getElementById("sync").textContent = s ? "Scores updated " + s.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) + " · refreshes every 15 min" : "Scores refresh every 15 minutes";
+  document.getElementById("sync").textContent = s ? "Scores updated " + s.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) + " · refreshes hourly" : "Scores refresh every hour";
   render();
 }
 
@@ -91,7 +91,7 @@ function render() {
   });
 
   if (!data.quizzes.length) { body.innerHTML = `<div class="panel empty"><strong>No ${esc(F.subject)} quizzes yet</strong><span>Results appear here once quizzes are created and students submit them.</span></div>`; return; }
-  if (!first.length) { body.innerHTML = `<div class="panel empty"><strong>No submissions for this selection yet</strong><span>Scores appear within 15 minutes of a student submitting a quiz. Try another batch or chapter.</span></div>`; return; }
+  if (!first.length) { body.innerHTML = `<div class="panel empty"><strong>No submissions for this selection yet</strong><span>Scores appear within about an hour of a student submitting a quiz. Try another batch or chapter.</span></div>`; return; }
 
   // students
   const studs = {};
