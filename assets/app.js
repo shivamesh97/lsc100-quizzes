@@ -10,6 +10,33 @@
     set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} }
   };
 
+  // ---------- theme: follows the device unless the teacher picks Light or Dark ----------
+  const THEMES = ["auto", "light", "dark"];
+  function applyTheme(t) {
+    if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+    else delete document.documentElement.dataset.theme;
+  }
+  function getTheme() { const t = ls.get("tp_theme"); return THEMES.includes(t) ? t : "auto"; }
+  applyTheme(getTheme());
+  function themeLabel(t) { return { auto: "Theme: Auto", light: "Theme: Light", dark: "Theme: Dark" }[t]; }
+  function cycleTheme() {
+    const next = THEMES[(THEMES.indexOf(getTheme()) + 1) % THEMES.length];
+    ls.set("tp_theme", next === "auto" ? null : next);
+    applyTheme(next);
+    document.querySelectorAll("[data-theme-btn]").forEach(b => { b.textContent = themeLabel(next); b.title = "Theme: " + next + " (click to change)"; });
+  }
+
+  // ---------- class switch shared by every page ----------
+  const CLASSES = (CFG.CLASSES && CFG.CLASSES.length ? CFG.CLASSES : ["11", "12"]).map(String);
+  function getClass() { const c = String(prefsGet("class", CLASSES[0])); return CLASSES.includes(c) ? c : CLASSES[0]; }
+  function setClass(c) {
+    prefsSet("class", c);
+    document.querySelectorAll("[data-class-btn]").forEach(b => b.setAttribute("aria-pressed", b.dataset.classBtn === c));
+    document.dispatchEvent(new CustomEvent("portal:class", { detail: c }));
+  }
+  function prefsGet(k, d) { try { const v = JSON.parse(ls.get("tp_pref_" + k)); return v == null ? d : v; } catch (e) { return d; } }
+  function prefsSet(k, v) { ls.set("tp_pref_" + k, JSON.stringify(v)); }
+
   function payload(t) {
     try {
       const p = t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
@@ -71,7 +98,7 @@
   const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const natural = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
 
-  // Logo: set LOGO in config.js (e.g. "assets/logo.jpg"); without it, a simple ring mark is drawn.
+  // Logo: set LOGO in config.js (e.g. "assets/logo.png"); without it, a simple ring mark is drawn.
   function logoHtml(cls) {
     return CFG.LOGO ? `<img class="${cls}" src="${esc(CFG.LOGO)}" alt="">` : `<span class="ring" aria-hidden="true"></span>`;
   }
@@ -81,7 +108,10 @@
     document.head.appendChild(icon);
   }
 
-  function header(active, user) {
+  // opts.classSwitch: show the Class 11 / Class 12 switch (pages that filter by class)
+  function header(active, user, opts) {
+    opts = opts || {};
+    const cls = getClass();
     const el = document.createElement("header");
     el.className = "top";
     el.innerHTML =
@@ -90,10 +120,31 @@
         ${user ? `<nav class="nav" aria-label="Main">
           <a href="index.html" ${active === "subjects" ? 'aria-current="page"' : ""}>Subjects</a>
           <a href="analytics.html" ${active === "analytics" ? 'aria-current="page"' : ""}>Analytics</a>
-        </nav>
-        <div class="who">${user.picture ? `<img src="${esc(user.picture)}" alt="" referrerpolicy="no-referrer">` : ""}<span>${esc(user.name || user.email)}</span><button class="linkbtn" id="signout">Sign out</button></div>` : ""}
+        </nav>` : ""}
+        ${user && opts.classSwitch ? `<div class="classsw" role="group" aria-label="Class">${CLASSES.map(c =>
+          `<button type="button" data-class-btn="${esc(c)}" aria-pressed="${c === cls}">Class ${esc(c)}</button>`).join("")}</div>` : ""}
+        <div class="who">
+          ${user && user.picture ? `<img src="${esc(user.picture)}" alt="" referrerpolicy="no-referrer">` : ""}
+          ${user ? `<span>${esc(user.name || user.email)}</span>` : ""}
+          <button class="linkbtn" type="button" data-theme-btn title="Theme: ${getTheme()} (click to change)">${themeLabel(getTheme())}</button>
+          ${user ? `<button class="linkbtn top-only" id="signout" type="button">Sign out</button>` : ""}
+        </div>
       </div>`;
     document.body.prepend(el);
+    if (user) {
+      // Bottom bar on phones
+      const bn = document.createElement("nav");
+      bn.className = "bottomnav"; bn.setAttribute("aria-label", "Main");
+      bn.innerHTML = `
+        <a href="index.html" ${active === "subjects" ? 'aria-current="page"' : ""}><span aria-hidden="true">▤</span>Subjects</a>
+        <a href="analytics.html" ${active === "analytics" ? 'aria-current="page"' : ""}><span aria-hidden="true">▥</span>Analytics</a>
+        <button type="button" id="signout2"><span aria-hidden="true">⇥</span>Sign out</button>`;
+      document.body.appendChild(bn);
+      document.body.classList.add("has-bottomnav");
+      bn.querySelector("#signout2").onclick = signOut;
+    }
+    el.querySelectorAll("[data-theme-btn]").forEach(b => b.onclick = cycleTheme);
+    el.querySelectorAll("[data-class-btn]").forEach(b => b.onclick = () => setClass(b.dataset.classBtn));
     if (DEMO) {
       const d = document.createElement("div");
       d.className = "demo-bar";
@@ -123,10 +174,18 @@
     }
   }
 
-  const prefs = {
-    get(k, d) { try { const v = JSON.parse(ls.get("tp_pref_" + k)); return v == null ? d : v; } catch (e) { return d; } },
-    set(k, v) { ls.set("tp_pref_" + k, JSON.stringify(v)); }
-  };
+  const prefs = { get: prefsGet, set: prefsSet };
 
-  window.Portal = { logoHtml, CFG, DEMO, TOKEN, ME, ls, token, payload, api, me, signOut, header, esc, natural, toast, copy, prefs, goLogin };
+  // Download rows as a CSV file that opens in Excel
+  function downloadCsv(filename, rows) {
+    const cell = v => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const text = "\ufeff" + rows.map(r => r.map(cell).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = filename.replace(/[^\w.\- ]+/g, "_");
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  window.Portal = { getClass, setClass, CLASSES, downloadCsv, logoHtml, CFG, DEMO, TOKEN, ME, ls, token, payload, api, me, signOut, header, esc, natural, toast, copy, prefs, goLogin };
 })();

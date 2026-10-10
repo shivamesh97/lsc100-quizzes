@@ -5,106 +5,82 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Analytics – Teacher Portal</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Atkinson+Hyperlegible:wght@400;700&family=Kalam:wght@700&family=Nunito+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
 <link rel="stylesheet" href="assets/app.css">
 <script src="config.js"></script>
 <script src="assets/demo.js"></script>
 <script src="assets/app.js"></script>
+<script src="assets/stats.js"></script>
 </head>
 <body>
 <main id="main"><p class="loading">Loading…</p></main>
 
 <script>
-const { esc, api, me, header, natural, prefs } = Portal;
+const { esc, api, me, header, natural, prefs, toast, downloadCsv } = Portal;
+const { pct, day, mean, compute, topicAverages, statusPill, status, trendCell, periodKey, periodLabel, studentChart, norm } = Stats;
 const main = document.getElementById("main");
-const F = { subject: "", cls: "", batch: "", chapter: "" };
-let user, data = null, studentSort = prefs.get("an_sort", "avg"), pickedStudent = null, pickedQuiz = null;
-
-const norm = s => String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
-const pct = x => Math.round(x * 100);
-const day = d => d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
-const classLabel = c => /^\d+$/.test(c) ? "Class " + c : c;
+const F = { subject: "", chapter: "" };
+let user, data = null, view = null;
+let studentSort = prefs.get("an_sort", "avg"), pickedStudent = null, pickedQuiz = null, period = prefs.get("an_period", "week"), search = "";
+let tab = ["students", "topics"].includes(location.hash.slice(1)) ? location.hash.slice(1) : prefs.get("an_tab", "students");
 
 (async function start() {
   try { user = await me(); } catch (e) { if (e.code !== "signin") main.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
-  header("analytics", user);
+  header("analytics", user, { classSwitch: true });
   const saved = prefs.get("an_subject", ""), counts = user.quizCounts || {};
   F.subject = user.subjects.includes(saved) ? saved : (user.subjects.find(s => counts[s] > 0) || user.subjects[0]);
   main.innerHTML = `
     <div class="panel-head">
       <div><h1>Analytics</h1><p class="lede">Each student's first attempt at each quiz counts, so retakes don't hide what they knew the first time.</p></div>
-      <span class="meta" id="sync"></span>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+        <button class="btn sm ghost" id="refresh" type="button">Refresh now</button>
+        <span class="meta" id="sync"></span>
+      </div>
     </div>
     <div class="panel"><div class="toolbar">
       <div class="field"><label class="label" for="f-subject">Subject</label><select class="input" id="f-subject">${user.subjects.map(s => `<option ${s === F.subject ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
-      <div class="field"><label class="label" for="f-cls">Class</label><select class="input" id="f-cls"></select></div>
-      <div class="field"><label class="label" for="f-batch">Batch</label><select class="input" id="f-batch"></select></div>
       <div class="field"><label class="label" for="f-chapter">Chapter</label><select class="input" id="f-chapter"></select></div>
     </div></div>
     <div id="body"><p class="loading">Loading results…</p></div>`;
-  document.getElementById("f-subject").onchange = e => { F.subject = e.target.value; prefs.set("an_subject", F.subject); F.cls = F.batch = F.chapter = ""; load(); };
-  ["cls", "batch", "chapter"].forEach(k => document.getElementById("f-" + k).onchange = e => { F[k] = e.target.value; if (k === "cls") F.chapter = ""; pickedStudent = pickedQuiz = null; render(); });
+  document.getElementById("f-subject").onchange = e => { F.subject = e.target.value; prefs.set("an_subject", F.subject); F.chapter = ""; load(); };
+  document.getElementById("f-chapter").onchange = e => { F.chapter = e.target.value; pickedStudent = pickedQuiz = null; render(); };
+  document.getElementById("refresh").onclick = () => load(true);
+  document.addEventListener("portal:class", () => { F.chapter = ""; pickedStudent = pickedQuiz = null; if (data) render(); });
   load();
 })();
 
-async function load() {
-  document.getElementById("body").innerHTML = `<p class="loading">Loading results…</p>`;
-  pickedStudent = pickedQuiz = null;
-  try { data = await api("analytics", { subject: F.subject }); }
-  catch (e) { if (e.code !== "signin") document.getElementById("body").innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
+async function load(refresh) {
+  const btn = document.getElementById("refresh");
+  if (refresh) { btn.disabled = true; btn.textContent = "Refreshing…"; document.getElementById("sync").textContent = "Fetching new scores from the quizzes. This can take up to a minute."; }
+  else { document.getElementById("body").innerHTML = `<p class="loading">Loading results…</p>`; pickedStudent = pickedQuiz = null; }
+  try { data = await api(refresh ? "refresh" : "analytics", { subject: F.subject }); }
+  catch (e) {
+    btn.disabled = false; btn.textContent = "Refresh now";
+    if (e.code !== "signin") document.getElementById(refresh ? "sync" : "body").innerHTML = `<div class="notice bad">${esc(e.message)}</div>`;
+    return;
+  }
+  btn.disabled = false; btn.textContent = "Refresh now";
   const s = data.lastSync ? new Date(data.lastSync) : null;
-  document.getElementById("sync").textContent = s ? "Scores updated " + s.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) + " · refreshes hourly" : "Scores refresh every hour";
+  const when = s ? "Scores updated " + s.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "Scores refresh every hour";
+  const note = { recent: " · just refreshed, try again in a minute", partial: " · some quizzes still updating, refresh again", busy: " · an update is already running, try again shortly" }[data.refresh] || "";
+  document.getElementById("sync").textContent = when + (note || " · refreshes hourly");
+  if (refresh) toast(data.refresh === "done" ? "Scores are up to date." : "Scores updated as far as possible.");
   render();
-}
-
-function options(id, values, current, allLabel, fmt) {
-  const el = document.getElementById(id);
-  el.innerHTML = `<option value="">${allLabel}</option>` + values.map(v => `<option value="${esc(v)}" ${v === current ? "selected" : ""}>${esc(fmt ? fmt(v) : v)}</option>`).join("");
 }
 
 function render() {
   const body = document.getElementById("body");
-  const quizById = {}; data.quizzes.forEach(q => quizById[q.id] = q);
+  const cls = Portal.getClass();
+  const quizzesHere = data.quizzes.filter(q => q.cls === cls);
+  const chapters = [...new Set(quizzesHere.map(q => q.chapter))].sort(natural);
+  if (F.chapter && !chapters.includes(F.chapter)) F.chapter = "";
+  document.getElementById("f-chapter").innerHTML = `<option value="">All chapters</option>` + chapters.map(c => `<option ${c === F.chapter ? "selected" : ""}>${esc(c)}</option>`).join("");
 
-  // filter options
-  const classes = [...new Set(data.quizzes.map(q => q.cls))].sort(natural);
-  if (classes.length === 1) F.cls = classes[0];
-  options("f-cls", classes, F.cls, "All classes", classLabel);
-  const chapters = [...new Set(data.quizzes.filter(q => !F.cls || q.cls === F.cls).map(q => q.chapter))].sort(natural);
-  options("f-chapter", chapters, F.chapter, "All chapters");
-  const batchNames = {};
-  data.responses.forEach(r => { const k = norm(r[3]); if (k && !batchNames[k]) batchNames[k] = r[3]; });
-  options("f-batch", Object.keys(batchNames).sort(natural), F.batch, "All batches", k => batchNames[k]);
+  if (!quizzesHere.length) { body.innerHTML = `<div class="panel empty"><strong>No Class ${esc(cls)} ${esc(F.subject)} quizzes yet</strong><span>Switch class at the top, or pick another subject.</span></div>`; return; }
+  view = compute(data, { cls, chapter: F.chapter });
+  const { first, students } = view;
+  if (!first.length) { body.innerHTML = `<div class="panel empty"><strong>No submissions for this selection yet</strong><span>Scores appear within about an hour of a student submitting a quiz, or straight away with Refresh now.</span></div>`; return; }
 
-  // first attempt per student per quiz
-  const rows = data.responses.map(r => ({ t: new Date(r[0]), q: quizById[r[1]], name: r[2], batch: r[3], score: r[4], out: r[5], ans: r[6] }))
-    .filter(r => r.q && r.out > 0 && norm(r.name))
-    .filter(r => (!F.cls || r.q.cls === F.cls) && (!F.chapter || r.q.chapter === F.chapter) && (!F.batch || norm(r.batch) === F.batch))
-    .sort((a, b) => a.t - b.t);
-  const seen = new Set(), attempts = {};
-  const first = [];
-  rows.forEach(r => {
-    r.key = norm(r.name) + "|" + norm(r.batch);
-    const k = r.key + "|" + r.q.id;
-    attempts[k] = (attempts[k] || 0) + 1;
-    if (!seen.has(k)) { seen.add(k); first.push(r); }
-  });
-
-  if (!data.quizzes.length) { body.innerHTML = `<div class="panel empty"><strong>No ${esc(F.subject)} quizzes yet</strong><span>Results appear here once quizzes are created and students submit them.</span></div>`; return; }
-  if (!first.length) { body.innerHTML = `<div class="panel empty"><strong>No submissions for this selection yet</strong><span>Scores appear within about an hour of a student submitting a quiz. Try another batch or chapter.</span></div>`; return; }
-
-  // students
-  const studs = {};
-  first.forEach(r => {
-    const s = studs[r.key] = studs[r.key] || { key: r.key, name: r.name, batch: r.batch, list: [] };
-    if (/[A-Z]/.test(r.name) && !/[A-Z]/.test(s.name)) s.name = r.name;
-    s.list.push(r);
-  });
-  const students = Object.values(studs).map(s => {
-    s.avg = s.list.reduce((a, r) => a + r.score / r.out, 0) / s.list.length;
-    s.retakes = s.list.reduce((a, r) => a + (attempts[r.key + "|" + r.q.id] - 1), 0);
-    return s;
-  });
   const sorters = { avg: (a, b) => a.avg - b.avg, name: (a, b) => natural(a.name, b.name), quizzes: (a, b) => b.list.length - a.list.length };
   students.sort(sorters[studentSort] || sorters.avg);
 
@@ -112,18 +88,14 @@ function render() {
   const byQuiz = {};
   first.forEach(r => (byQuiz[r.q.id] = byQuiz[r.q.id] || []).push(r));
   const quizStats = Object.keys(byQuiz).map(id => {
-    const list = byQuiz[id], q = quizById[id];
-    return { q, n: list.length, avg: list.reduce((a, r) => a + r.score / r.out, 0) / list.length, last: Math.max(...list.map(r => +r.t)), list };
+    const list = byQuiz[id];
+    return { q: view.quizById[id], n: list.length, avg: mean(list), last: Math.max(...list.map(r => +r.t)), list };
   }).sort((a, b) => natural(a.q.chapter + " " + a.q.topic + " " + a.q.set, b.q.chapter + " " + b.q.topic + " " + b.q.set));
   if (!pickedQuiz || !byQuiz[pickedQuiz]) pickedQuiz = quizStats.slice().sort((a, b) => b.last - a.last)[0].q.id;
-
-  // topics
-  const byTopic = {};
-  first.forEach(r => { const k = r.q.chapter + " › " + r.q.topic; (byTopic[k] = byTopic[k] || []).push(r.score / r.out); });
-  const topics = Object.keys(byTopic).map(k => ({ k, avg: byTopic[k].reduce((a, b) => a + b, 0) / byTopic[k].length, n: byTopic[k].length })).sort((a, b) => a.avg - b.avg).slice(0, 8);
-
-  const overall = first.reduce((a, r) => a + r.score / r.out, 0) / first.length;
+  const topicsAll = topicAverages(first);
+  const overall = mean(first);
   const needHelp = students.filter(s => s.avg < 0.4).length;
+  const available = quizzesHere.filter(q => !F.chapter || q.chapter === F.chapter).length;
 
   body.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:20px">
@@ -131,29 +103,142 @@ function render() {
       <div class="tile"><span class="label">Students</span><b>${students.length}</b><span class="meta">${needHelp} need help</span></div>
       <div class="tile"><span class="label">Average score</span><b>${pct(overall)}%</b><span class="meta">across all submissions</span></div>
       <div class="tile"><span class="label">Submissions</span><b>${first.length}</b><span class="meta">first attempts</span></div>
-      <div class="tile"><span class="label">Quizzes taken</span><b>${quizStats.length}</b><span class="meta">of ${data.quizzes.filter(q => (!F.cls || q.cls === F.cls) && (!F.chapter || q.chapter === F.chapter)).length} available</span></div>
+      <div class="tile"><span class="label">Quizzes taken</span><b>${quizStats.length}</b><span class="meta">of ${available} available</span></div>
     </div>
 
+    <div class="tabs" role="tablist" aria-label="Analytics view">
+      <button class="tab" role="tab" data-tab="students" aria-selected="${tab === "students"}">Students <span class="meta">${students.length}</span></button>
+      <button class="tab" role="tab" data-tab="topics" aria-selected="${tab === "topics"}">Topics <span class="meta">${topicsAll.length}</span></button>
+    </div>
+
+    ${tab === "students" ? studentsTab(students, first) : topicsTab(topicsAll, quizStats)}
+    </div>`;
+
+  // events
+  body.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => {
+    tab = b.dataset.tab; prefs.set("an_tab", tab);
+    try { history.replaceState(null, "", "#" + tab); } catch (e) {}
+    render();
+  });
+  body.querySelectorAll("[data-sort]").forEach(b => b.onclick = () => { studentSort = b.dataset.sort; prefs.set("an_sort", studentSort); render(); });
+  body.querySelectorAll("[data-period]").forEach(b => b.onclick = () => { period = b.dataset.period; prefs.set("an_period", period); render(); });
+  const pick = (sel, fn) => body.querySelectorAll(sel).forEach(tr => {
+    tr.onclick = e => { if (!e.target.closest("a")) fn(tr); };
+    tr.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fn(tr); } };
+  });
+  pick("[data-student]", tr => { pickedStudent = pickedStudent === tr.dataset.student ? null : tr.dataset.student; render(); });
+  pick("[data-quiz]", tr => { pickedQuiz = tr.dataset.quiz; render(); document.getElementById("qpanel")?.scrollIntoView({ behavior: "smooth", block: "nearest" }); });
+  const sb = document.getElementById("search");
+  if (sb) { sb.value = search; sb.oninput = () => { search = sb.value; applySearch(); }; applySearch(); }
+  document.getElementById("csv-students")?.addEventListener("click", () => csvStudents(students));
+  document.getElementById("csv-progress")?.addEventListener("click", () => csvProgress(students, first));
+}
+
+// ---------- Students tab ----------
+function studentsTab(students, first) {
+  const improved = students.filter(s => s.trend != null && s.trend >= 0.05).sort((a, b) => b.trend - a.trend).slice(0, 3);
+  return `
     <section class="panel">
-      <div class="panel-head"><h2>Students</h2><span class="meta">Select a student to see each quiz they took</span></div>
+      <div class="panel-head"><h2>Most improved</h2><span class="meta">Last 3 quizzes compared with the 3 before</span></div>
+      ${improved.length ? `<div class="improved">${improved.map((s, i) => `
+        <div class="imp"><span class="rank">${i + 1}</span><div style="min-width:0"><b>${esc(s.name)}</b>
+          <span class="meta">${pct(s.avg)}% average · ${Stats.trendText(s.trend)}</span></div></div>`).join("")}</div>`
+        : `<p class="meta" style="margin:0">No one has improved by 5 points or more yet. Students need at least 4 quizzes to show a trend.</p>`}
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Students</h2>
+        <div class="tools">
+          <input class="input searchbox" id="search" type="search" placeholder="Search by name" aria-label="Search students by name">
+          <button class="btn sm ghost" id="csv-students" type="button">Download Excel</button>
+        </div>
+      </div>
+      <p class="meta" style="margin:0">Select a student to see their scores over time and open their report card.</p>
       <div class="scroll"><table>
         <thead><tr>
           <th><button data-sort="name">Student${studentSort === "name" ? " ↓" : ""}</button></th>
           <th class="r"><button data-sort="quizzes">Quizzes${studentSort === "quizzes" ? " ↓" : ""}</button></th>
           <th class="r"><button data-sort="avg">Average${studentSort === "avg" ? " ↑" : ""}</button></th>
-          <th class="hide-sm">Recent scores</th><th>Status</th></tr></thead>
-        <tbody>${students.map(s => `<tr class="click" tabindex="0" data-student="${esc(s.key)}" aria-selected="${s.key === pickedStudent}">
-          <td><strong>${esc(s.name)}</strong><div class="meta">${esc(s.batch)}</div></td>
-          <td class="r num">${s.list.length}</td><td class="r num">${pct(s.avg)}%</td>
-          <td class="hide-sm">${spark(s.list.slice(-6).map(r => r.score / r.out))}</td><td>${status(s.avg)}</td></tr>
-          ${s.key === pickedStudent ? `<tr><td colspan="5" style="background:var(--sunk)">${studentDetail(s)}</td></tr>` : ""}`).join("")}
+          <th class="r">Trend</th><th class="hide-sm">Recent scores</th><th>Status</th></tr></thead>
+        <tbody>${students.map(s => `<tr class="click" tabindex="0" data-student="${esc(s.key)}" data-name="${esc(norm(s.name))}" aria-selected="${s.key === pickedStudent}">
+          <td><strong>${esc(s.name)}</strong><div class="meta">${esc(s.klass)}</div></td>
+          <td class="r num">${s.list.length}</td><td class="r num">${pct(s.avg)}%</td><td class="r num">${trendCell(s.trend)}</td>
+          <td class="hide-sm">${spark(s.list.slice(-6).map(r => r.score / r.out))}</td><td>${statusPill(s.avg)}</td></tr>
+          ${s.key === pickedStudent ? `<tr data-detail-for="${esc(norm(s.name))}"><td colspan="6" style="background:var(--sunk)">${studentDetail(s)}</td></tr>` : ""}`).join("")}
         </tbody></table></div>
+      <p class="meta" id="no-match" hidden style="margin:0">No student matches that name.</p>
     </section>
 
+    ${progressPanel(students, first)}`;
+}
+
+function applySearch() {
+  const q = norm(search);
+  let shown = 0;
+  document.querySelectorAll("[data-name]").forEach(tr => {
+    const hit = !q || tr.dataset.name.includes(q);
+    tr.hidden = !hit;
+    if (hit && tr.hasAttribute("data-student")) shown++;
+  });
+  document.querySelectorAll("[data-detail-for]").forEach(tr => { tr.hidden = !!q && !tr.dataset.detailFor.includes(q); });
+  const nm = document.getElementById("no-match"); if (nm) nm.hidden = shown > 0;
+}
+
+function studentDetail(s) {
+  const list = s.list.slice().sort((a, b) => b.t - a.t);
+  const link = `report.html?subject=${encodeURIComponent(F.subject)}&cls=${encodeURIComponent(Portal.getClass())}&student=${encodeURIComponent(s.key)}`;
+  return `<div style="display:flex;flex-direction:column;gap:8px;padding:4px 0">
+    <div class="panel-head">
+      <span class="label">${esc(s.name)} · ${list.length} quiz${list.length === 1 ? "" : "zes"} · average ${pct(s.avg)}%${s.retakes ? ` · ${s.retakes} retake${s.retakes === 1 ? "" : "s"} not counted` : ""}</span>
+      <a class="btn sm accent" href="${link}">Open report card</a>
+    </div>
+    ${studentChart(s.list)}
+    ${list.map(r => `<div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:space-between">
+      <span>${esc(r.q.chapter)} › ${esc(r.q.topic)} <span class="meta">Set ${esc(r.q.set)}</span></span>
+      <span class="num"><span class="meta">${day(r.t)}</span> &nbsp;<strong>${r.score}/${r.out}</strong></span></div>`).join("")}</div>`;
+}
+
+function progressRows(students, first) {
+  const keys = [...new Set(first.map(r => periodKey(r.t, period)))].sort().slice(-6);
+  const rows = students.map(s => {
+    const vals = keys.map(k => { const l = s.list.filter(r => periodKey(r.t, period) === k); return l.length ? { v: mean(l), n: l.length } : null; });
+    const filled = vals.filter(Boolean);
+    return { s, vals, change: filled.length >= 2 ? filled[filled.length - 1].v - filled[0].v : null };
+  });
+  return { keys, rows };
+}
+
+function progressPanel(students, first) {
+  const { keys, rows } = progressRows(students, first);
+  return `<section class="panel">
+    <div class="panel-head">
+      <div><h2>Progress over time</h2><span class="meta">Each student's average score per ${period}. Darker means higher.</span></div>
+      <div class="tools">
+        <div class="chips" role="group" aria-label="Group by">
+          <button class="chip" data-period="week" aria-pressed="${period === "week"}">Weekly</button>
+          <button class="chip" data-period="month" aria-pressed="${period === "month"}">Monthly</button>
+        </div>
+        <button class="btn sm ghost" id="csv-progress" type="button">Download Excel</button>
+      </div>
+    </div>
+    <div class="scroll"><table class="progress">
+      <thead><tr><th>Student</th>${keys.map(k => `<th class="r">${esc(periodLabel(k, period))}</th>`).join("")}<th class="r">Change</th></tr></thead>
+      <tbody>${rows.map(({ s, vals, change }) => `<tr data-name="${esc(norm(s.name))}"><td><strong>${esc(s.name)}</strong></td>${vals.map(c => c
+        ? `<td class="r num heat" style="--h:${Math.round(c.v * 45)}%" title="${pct(c.v)}% average over ${c.n} quiz${c.n === 1 ? "" : "zes"}">${pct(c.v)}%</td>`
+        : `<td class="r meta" title="No quiz taken">–</td>`).join("")}
+        <td class="r">${change == null ? `<span class="meta">—</span>` : trendCell(change, "First period shown vs latest")}</td></tr>`).join("")}
+      </tbody></table></div>
+  </section>`;
+}
+
+// ---------- Topics tab ----------
+function topicsTab(topicsAll, quizStats) {
+  return `
     <div class="grid2">
       <section class="panel">
         <div class="panel-head"><h2>Weakest topics</h2><span class="meta">Average score, lowest first</span></div>
-        <div class="bars">${topics.map(t => bar(t.k, t.avg, t.n + " submissions")).join("")}</div>
+        <div class="bars">${topicsAll.slice(0, 8).map(t => bar(t.k, t.avg, t.n + " submissions")).join("")}</div>
       </section>
       <section class="panel">
         <div class="panel-head"><h2>Quizzes</h2><span class="meta">Select one to see its questions</span></div>
@@ -165,49 +250,7 @@ function render() {
           </tbody></table></div>
       </section>
     </div>
-
-    ${questionPanel(quizStats.find(s => s.q.id === pickedQuiz))}
-    </div>`;
-
-  body.querySelectorAll("[data-sort]").forEach(b => b.onclick = () => { studentSort = b.dataset.sort; prefs.set("an_sort", studentSort); render(); });
-  const pick = (sel, fn) => body.querySelectorAll(sel).forEach(tr => {
-    tr.onclick = () => fn(tr);
-    tr.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fn(tr); } };
-  });
-  pick("[data-student]", tr => { pickedStudent = pickedStudent === tr.dataset.student ? null : tr.dataset.student; render(); });
-  pick("[data-quiz]", tr => { pickedQuiz = tr.dataset.quiz; render(); document.getElementById("qpanel")?.scrollIntoView({ behavior: "smooth", block: "nearest" }); });
-}
-
-function status(a) {
-  if (a < 0.4) return `<span class="pill bad">⚠ Needs help</span>`;
-  if (a < 0.6) return `<span class="pill warn">◐ Watch</span>`;
-  return `<span class="pill good">✓ On track</span>`;
-}
-
-function spark(vals) {
-  const w = 76, h = 22, p = 4;
-  if (!vals.length) return "";
-  const x = i => vals.length === 1 ? w / 2 : p + i * (w - 2 * p) / (vals.length - 1);
-  const y = v => h - p - v * (h - 2 * p);
-  const pts = vals.map((v, i) => x(i).toFixed(1) + "," + y(v).toFixed(1)).join(" ");
-  const last = vals[vals.length - 1];
-  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="Last ${vals.length} scores: ${vals.map(v => pct(v) + "%").join(", ")}"><title>${vals.map(v => pct(v) + "%").join(" → ")}</title>
-    ${vals.length > 1 ? `<polyline points="${pts}"/>` : ""}<circle cx="${x(vals.length - 1)}" cy="${y(last)}" r="3.5"/></svg>`;
-}
-
-function bar(label, v, note) {
-  return `<div class="bar-row" title="${esc(label)}: ${pct(v)}% (${esc(note)})">
-    <div class="what">${esc(label)} <span class="meta">${esc(note)}</span></div>
-    <div class="track"><div class="fill" style="width:${Math.max(2, pct(v))}%"></div></div><div class="val">${pct(v)}%</div></div>`;
-}
-
-function studentDetail(s) {
-  const list = s.list.slice().sort((a, b) => b.t - a.t);
-  return `<div style="display:flex;flex-direction:column;gap:6px;padding:4px 0">
-    <span class="label">${esc(s.name)} · ${list.length} quiz${list.length === 1 ? "" : "zes"}${s.retakes ? ` · ${s.retakes} retake${s.retakes === 1 ? "" : "s"} not counted` : ""}</span>
-    ${list.map(r => `<div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:space-between">
-      <span>${esc(r.q.chapter)} › ${esc(r.q.topic)} <span class="meta">Set ${esc(r.q.set)}</span></span>
-      <span class="num"><span class="meta">${day(r.t)}</span> &nbsp;<strong>${r.score}/${r.out}</strong></span></div>`).join("")}</div>`;
+    ${questionPanel(quizStats.find(s => s.q.id === pickedQuiz))}`;
 }
 
 function questionPanel(s) {
@@ -223,6 +266,37 @@ function questionPanel(s) {
     <div class="bars">${qs.map(q => bar(q.text, q.right, Math.round(q.right * s.list.length) + " of " + s.list.length + " correct")).join("")}</div>
     <p class="meta" style="margin:0">Questions near the top are worth re-teaching in class.</p>
   </section>`;
+}
+
+// ---------- small charts ----------
+function spark(vals) {
+  const w = 76, h = 22, p = 4;
+  if (!vals.length) return "";
+  const x = i => vals.length === 1 ? w / 2 : p + i * (w - 2 * p) / (vals.length - 1);
+  const y = v => h - p - v * (h - 2 * p);
+  const pts = vals.map((v, i) => x(i).toFixed(1) + "," + y(v).toFixed(1)).join(" ");
+  const last = vals[vals.length - 1];
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="Last ${vals.length} scores: ${vals.map(v => pct(v) + "%").join(", ")}"><title>${vals.map(v => pct(v) + "%").join(" → ")}</title>
+    ${vals.length > 1 ? `<polyline points="${pts}"/>` : ""}<circle cx="${x(vals.length - 1)}" cy="${y(last)}" r="3.5"/></svg>`;
+}
+function bar(label, v, note) {
+  return `<div class="bar-row" title="${esc(label)}: ${pct(v)}% (${esc(note)})">
+    <div class="what">${esc(label)} <span class="meta">${esc(note)}</span></div>
+    <div class="track"><div class="fill" style="width:${Math.max(2, pct(v))}%"></div></div><div class="val">${pct(v)}%</div></div>`;
+}
+
+// ---------- Excel downloads ----------
+function fileBase() { return `${F.subject} Class ${Portal.getClass()}${F.chapter ? " " + F.chapter : ""}`; }
+function csvStudents(students) {
+  const rows = [["Student", "Class", "Quizzes", "Average %", "Trend (last 3 vs 3 before)", "Status", "Last quiz"]];
+  students.forEach(s => rows.push([s.name, s.klass, s.list.length, pct(s.avg), s.trend == null ? "" : Math.round(s.trend * 100), status(s.avg).text.replace(/^\S+\s/, ""), day(s.last)]));
+  downloadCsv(fileBase() + " students.csv", rows);
+}
+function csvProgress(students, first) {
+  const { keys, rows } = progressRows(students, first);
+  const out = [["Student", ...keys.map(k => periodLabel(k, period)), "Change"]];
+  rows.forEach(({ s, vals, change }) => out.push([s.name, ...vals.map(c => c ? pct(c.v) : ""), change == null ? "" : Math.round(change * 100)]));
+  downloadCsv(fileBase() + " progress " + (period === "week" ? "weekly" : "monthly") + ".csv", out);
 }
 </script>
 </body>

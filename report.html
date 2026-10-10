@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Report card – Teacher Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Atkinson+Hyperlegible:wght@400;700&family=Kalam:wght@700&family=Nunito+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="assets/app.css">
+<script src="config.js"></script>
+<script src="assets/demo.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/stats.js"></script>
+</head>
+<body>
+<main id="main"><p class="loading">Loading…</p></main>
+
+<script>
+const { esc, api, me, header, toast, copy, CFG, logoHtml } = Portal;
+const { pct, day, compute, topicAverages, status, statusPill, trendText, studentChart } = Stats;
+const main = document.getElementById("main");
+const P = new URLSearchParams(location.search);
+const subject = P.get("subject") || "", cls = P.get("cls") || "", key = P.get("student") || "";
+let student = null;
+
+(async function start() {
+  let user;
+  try { user = await me(); } catch (e) { if (e.code !== "signin") main.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
+  header("analytics", user);
+  if (!user.subjects.includes(subject)) { main.innerHTML = `<div class="panel empty"><strong>This report isn't available</strong><span>You don't have access to ${esc(subject || "this subject")}.</span><a class="btn ghost" href="analytics.html">Back to analytics</a></div>`; return; }
+  let data;
+  try { data = await api("analytics", { subject }); }
+  catch (e) { if (e.code !== "signin") main.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
+  student = compute(data, { cls }).students.find(s => s.key === key);
+  if (!student) { main.innerHTML = `<div class="panel empty"><strong>No quizzes found for this student</strong><span>Go back to Analytics and pick the student again.</span><a class="btn ghost" href="analytics.html#students">Back to analytics</a></div>`; return; }
+  document.title = student.name + " – " + subject + " report";
+  render();
+})();
+
+function render() {
+  const s = student, list = s.list;
+  const topics = topicAverages(list);
+  const strong = topics.filter(t => t.avg >= 0.7).slice(-3).reverse();
+  const weak = topics.filter(t => t.avg < 0.6).slice(0, 3);
+  const from = day(list[0].t), to = day(list[list.length - 1].t);
+  const st = status(s.avg);
+  main.innerHTML = `
+    <div class="no-print panel-head">
+      <a href="analytics.html#students" class="meta">← Back to analytics</a>
+      <div class="tools">
+        <button class="btn sm ghost" id="copy-text" type="button">Copy summary</button>
+        <a class="btn sm accent" id="wa" href="#" target="_blank" rel="noopener">Send on WhatsApp</a>
+        <button class="btn sm ghost" id="print" type="button">Print / Save PDF</button>
+      </div>
+    </div>
+
+    <article class="report">
+      <header class="report-head">
+        <div class="brand">${logoHtml("logo")}<span><b>${esc(CFG.CENTRE_NAME || "Teacher Portal")}</b><small>Progress report</small></span></div>
+        <div style="text-align:right"><span class="label">Prepared</span><div>${esc(new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" }))}</div></div>
+      </header>
+
+      <div>
+        <h1>${esc(s.name)}</h1>
+        <p class="lede" style="margin-top:4px">${esc(subject)} · Class ${esc(cls)} · quizzes from ${esc(from)} to ${esc(to)}</p>
+      </div>
+
+      <div class="facts">
+        <div class="fact"><span class="label">Average score</span><b>${pct(s.avg)}%</b></div>
+        <div class="fact"><span class="label">Quizzes taken</span><b>${list.length}</b></div>
+        <div class="fact"><span class="label">Trend</span><b style="font-size:18px">${esc(trendText(s.trend))}</b></div>
+        <div class="fact"><span class="label">Status</span><div style="margin-top:6px">${statusPill(s.avg)}</div></div>
+      </div>
+
+      <section style="display:flex;flex-direction:column;gap:8px">
+        <h2>Scores over time</h2>
+        ${studentChart(list)}
+      </section>
+
+      <div class="grid2">
+        <section style="display:flex;flex-direction:column;gap:8px">
+          <h2>Doing well in</h2>
+          ${strong.length ? `<div class="bars">${strong.map(t => bar(t)).join("")}</div>` : `<p class="meta" style="margin:0">No topic at 70% or above yet.</p>`}
+        </section>
+        <section style="display:flex;flex-direction:column;gap:8px">
+          <h2>Needs more practice</h2>
+          ${weak.length ? `<div class="bars">${weak.map(t => bar(t)).join("")}</div>` : `<p class="meta" style="margin:0">No topic below 60%. Well done.</p>`}
+        </section>
+      </div>
+
+      <section style="display:flex;flex-direction:column;gap:8px">
+        <h2>Every quiz</h2>
+        <div class="scroll"><table>
+          <thead><tr><th>Date</th><th>Chapter and topic</th><th class="r">Score</th></tr></thead>
+          <tbody>${list.slice().reverse().map(r => `<tr><td class="meta">${esc(day(r.t))}</td><td>${esc(r.q.chapter)} › ${esc(r.q.topic)} <span class="meta">Set ${esc(r.q.set)}</span></td><td class="r num"><strong>${r.score}/${r.out}</strong></td></tr>`).join("")}</tbody>
+        </table></div>
+      </section>
+
+      <section style="display:flex;flex-direction:column;gap:8px">
+        <h2>Teacher's note</h2>
+        <label class="sr" for="note">Teacher's note</label>
+        <textarea class="note" id="note" placeholder="Add a short note for the parents, e.g. what to revise this week."></textarea>
+        <div class="note-print" id="note-print"></div>
+      </section>
+    </article>`;
+
+  const note = document.getElementById("note"), notePrint = document.getElementById("note-print");
+  const noteKey = "note_" + subject + "_" + s.key;
+  note.value = Portal.prefs.get(noteKey, "");
+  notePrint.textContent = note.value || "—";
+  note.oninput = () => { Portal.prefs.set(noteKey, note.value); notePrint.textContent = note.value || "—"; };
+  document.getElementById("print").onclick = () => window.print();
+  document.getElementById("copy-text").onclick = async () => toast(await copy(summary(strong, weak)) ? "Summary copied. Paste it into WhatsApp." : "Couldn't copy. Use Send on WhatsApp instead.");
+  const wa = document.getElementById("wa");
+  wa.onclick = () => { wa.href = "https://wa.me/?text=" + encodeURIComponent(summary(strong, weak)); };
+}
+
+function bar(t) {
+  return `<div class="bar-row" title="${esc(t.k)}: ${pct(t.avg)}%"><div class="what">${esc(t.k)} <span class="meta">${t.n} quiz${t.n === 1 ? "" : "zes"}</span></div>
+    <div class="track"><div class="fill" style="width:${Math.max(2, pct(t.avg))}%"></div></div><div class="val">${pct(t.avg)}%</div></div>`;
+}
+
+// Plain-text summary for parents on WhatsApp
+function summary(strong, weak) {
+  const s = student, note = document.getElementById("note").value.trim();
+  const topicName = k => k.split(" › ").pop();
+  let m = `*${CFG.CENTRE_NAME || "Progress report"} – Progress report*\n`;
+  m += `Student: ${s.name} (Class ${cls})\nSubject: ${subject}\n`;
+  m += `Quizzes taken: ${s.list.length} (${day(s.list[0].t)} – ${day(s.list[s.list.length - 1].t)})\n`;
+  m += `Average score: ${pct(s.avg)}%\nTrend: ${trendText(s.trend)}\n`;
+  if (strong.length) m += `Doing well in: ${strong.map(t => topicName(t.k)).join(", ")}\n`;
+  if (weak.length) m += `Needs more practice: ${weak.map(t => topicName(t.k)).join(", ")}\n`;
+  if (note) m += `\nTeacher's note: ${note}\n`;
+  return m.trim();
+}
+</script>
+</body>
+</html>
