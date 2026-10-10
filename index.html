@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Teacher Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="assets/app.css">
+<script src="config.js"></script>
+<script src="assets/demo.js"></script>
+<script src="assets/app.js"></script>
+</head>
+<body>
+<main id="main"><p class="loading">Loading…</p></main>
+
+<script>
+const { DEMO, CFG, esc, api, me, header, ls, token, TOKEN, ME } = Portal;
+const main = document.getElementById("main");
+const params = new URLSearchParams(location.search);
+const next = params.get("next");
+const safeNext = next && /^(quizzes|analytics)\.html(\?[\w=&%.\-+]*)?$/.test(next) ? next : null;
+
+function showSignIn(errorText) {
+  header("signin", null);
+  main.innerHTML = `
+    <section class="signin">
+      <span class="ring" aria-hidden="true"></span>
+      <div>
+        <h1>Teacher sign-in</h1>
+        <p class="lede">Sign in with the Google account the centre added to the teacher list.</p>
+      </div>
+      ${errorText ? `<div class="notice bad" role="alert">${esc(errorText)}</div>` : ""}
+      <div id="gbtn">${DEMO ? `<button class="btn accent" id="demo-in">Continue in demo mode</button>` : `<p class="meta">Loading Google sign-in…</p>`}</div>
+    </section>`;
+  if (DEMO) { document.getElementById("demo-in").onclick = afterSignIn; return; }
+  loadGoogle(() => {
+    google.accounts.id.initialize({ client_id: CFG.GOOGLE_CLIENT_ID, callback: onCredential, auto_select: true, cancel_on_tap_outside: true });
+    const box = document.getElementById("gbtn"); box.innerHTML = "";
+    google.accounts.id.renderButton(box, { theme: "outline", size: "large", shape: "pill", text: "signin_with", logo_alignment: "left" });
+    if (!errorText) google.accounts.id.prompt();
+  });
+}
+
+function loadGoogle(cb) {
+  if (window.google && google.accounts) return cb();
+  const s = document.createElement("script");
+  s.src = "https://accounts.google.com/gsi/client"; s.async = true; s.onload = cb;
+  s.onerror = () => { document.getElementById("gbtn").innerHTML = `<div class="notice bad">Couldn't load Google sign-in. Check your internet connection and reload the page.</div>`; };
+  document.head.appendChild(s);
+}
+
+function onCredential(resp) {
+  ls.set(TOKEN, resp.credential);
+  ls.set(ME, null);
+  afterSignIn();
+}
+
+async function afterSignIn() {
+  main.innerHTML = `<p class="loading">Checking your access…</p>`;
+  try {
+    await me(true);
+    if (safeNext) { location.replace(safeNext); return; }
+    location.replace("index.html");
+  } catch (e) {
+    if (e.code === "signin") return;
+    ls.set(TOKEN, null); ls.set(ME, null);
+    document.querySelector(".top")?.remove(); document.querySelector(".demo-bar")?.remove();
+    showSignIn(e.message);
+  }
+}
+
+async function showHome() {
+  let user;
+  try { user = await me(); } catch (e) { if (e.code !== "signin") showSignIn(e.message); return; }
+  header("subjects", user);
+  const first = (user.name || "").split(" ")[0];
+  const counts = user.quizCounts || {};
+  main.innerHTML = `
+    <div>
+      <h1>${first ? "Hello, " + esc(first) : "Welcome"}</h1>
+      <p class="lede">Choose a subject to find quizzes by chapter and topic, then copy the link or send it on WhatsApp.</p>
+    </div>
+    <div class="cards">
+      ${user.subjects.map(s => `<a class="card" href="quizzes.html?subject=${encodeURIComponent(s)}">
+        <span class="label">Subject</span><b>${esc(s)}</b>
+        <span class="meta">${counts[s] || 0} quiz${counts[s] === 1 ? "" : "zes"}</span>
+        <span class="go">Open quizzes →</span></a>`).join("")}
+      <a class="card alt" href="analytics.html">
+        <span class="label">Results</span><b>Analytics</b>
+        <span class="meta">Scores by student, quiz and question</span>
+        <span class="go">Open analytics →</span></a>
+    </div>`;
+}
+
+if (DEMO ? ls.get(ME) : token()) showHome(); else showSignIn();
+</script>
+</body>
+</html>

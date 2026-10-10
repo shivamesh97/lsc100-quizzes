@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Quizzes – Teacher Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="assets/app.css">
+<script src="config.js"></script>
+<script src="assets/demo.js"></script>
+<script src="assets/app.js"></script>
+</head>
+<body>
+<main id="main"><p class="loading">Loading…</p></main>
+
+<script>
+const { esc, api, me, header, natural, toast, copy, prefs } = Portal;
+const main = document.getElementById("main");
+const subject = new URLSearchParams(location.search).get("subject") || "";
+let quizzes = [], cls = prefs.get("cls_" + subject, ""), query = "";
+
+(async function start() {
+  let user;
+  try { user = await me(); } catch (e) { if (e.code !== "signin") main.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
+  header("subjects", user);
+  if (!user.subjects.includes(subject)) {
+    main.innerHTML = `<div class="empty"><strong>Choose a subject first</strong><a class="btn ghost" href="index.html">Back to subjects</a></div>`;
+    return;
+  }
+  document.title = subject + " quizzes – Teacher Portal";
+  main.innerHTML = `
+    <div>
+      <a href="index.html" class="meta">← All subjects</a>
+      <h1>${esc(subject)} quizzes</h1>
+      <p class="lede">Open a chapter, find the topic and copy the quiz link or send it on WhatsApp.</p>
+    </div>
+    <div class="panel">
+      <div class="toolbar">
+        <div class="field" id="cls-field"><span class="label">Class</span><div class="chips" id="cls"></div></div>
+        <div class="field"><label class="label" for="q">Find a topic</label><input class="input" id="q" type="search" placeholder="e.g. taxonomic"></div>
+        <div class="field"><label class="label" for="batch">Batch (for the message)</label><input class="input" id="batch" type="text" placeholder="e.g. XI NEET Morning"></div>
+        <div class="field"><label class="label" for="due">Submit by (optional)</label><input class="input" id="due" type="text" placeholder="e.g. Sunday 9 pm"></div>
+      </div>
+    </div>
+    <div id="list"><p class="loading">Loading quizzes…</p></div>`;
+  const batch = document.getElementById("batch"), due = document.getElementById("due");
+  batch.value = prefs.get("batch", ""); due.value = prefs.get("due", "");
+  batch.oninput = () => prefs.set("batch", batch.value);
+  due.oninput = () => prefs.set("due", due.value);
+  document.getElementById("q").oninput = e => { query = e.target.value.trim().toLowerCase(); render(); };
+
+  try { quizzes = (await api("quizzes", { subject })).quizzes; }
+  catch (e) { if (e.code !== "signin") document.getElementById("list").innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
+  render();
+})();
+
+function classLabel(c) { return /^\d+$/.test(c) ? "Class " + c : c; }
+
+function render() {
+  const classes = [...new Set(quizzes.map(q => q.cls))].sort(natural);
+  if (!classes.includes(cls)) cls = classes[0] || "";
+  const chipBox = document.getElementById("cls");
+  document.getElementById("cls-field").hidden = classes.length < 2;
+  chipBox.innerHTML = classes.map(c => `<button class="chip" aria-pressed="${c === cls}" data-c="${esc(c)}">${esc(classLabel(c))}</button>`).join("");
+  chipBox.querySelectorAll("button").forEach(b => b.onclick = () => { cls = b.dataset.c; prefs.set("cls_" + subject, cls); render(); });
+
+  const list = document.getElementById("list");
+  if (!quizzes.length) {
+    list.innerHTML = `<div class="panel empty"><strong>No ${esc(subject)} quizzes yet</strong><span>Quizzes appear here as soon as they're created with the quiz builder.</span></div>`;
+    return;
+  }
+  const shown = quizzes.filter(q => q.cls === cls && (!query || (q.chapter + " " + q.topic).toLowerCase().includes(query)));
+  if (!shown.length) {
+    list.innerHTML = `<div class="panel empty"><strong>No topics match "${esc(query)}"</strong><span>Try a shorter word, or clear the search.</span></div>`;
+    return;
+  }
+  const chapters = {};
+  shown.forEach(q => ((chapters[q.chapter] = chapters[q.chapter] || {})[q.topic] = (chapters[q.chapter][q.topic] || [])).push(q));
+  const names = Object.keys(chapters).sort(natural);
+  list.innerHTML = `<div style="display:flex;flex-direction:column;gap:12px">` + names.map((ch, i) => {
+    const topics = Object.keys(chapters[ch]).sort(natural);
+    const n = topics.reduce((a, t) => a + chapters[ch][t].length, 0);
+    return `<details class="chapter" ${query || i === 0 || names.length === 1 ? "open" : ""}>
+      <summary><h2>${esc(ch)}</h2><span class="meta">${topics.length} topic${topics.length === 1 ? "" : "s"} · ${n} quiz${n === 1 ? "" : "zes"}</span></summary>
+      ${topics.map(t => `<div class="topic">
+        <div class="topic-name">${esc(t)}</div>
+        <div class="sets">${chapters[ch][t].sort((a, b) => natural(a.set, b.set)).map(q => `
+          <div class="set">
+            <span class="tag">Set ${esc(q.set)}</span>
+            <button class="btn sm ghost" data-copy="${esc(q.id)}">Copy link</button>
+            <a class="btn sm accent" data-wa="${esc(q.id)}" href="#" target="_blank" rel="noopener">WhatsApp</a>
+            <a class="btn sm ghost" href="${esc(q.link)}" target="_blank" rel="noopener" title="Open the form">Open</a>
+          </div>`).join("")}
+        </div>
+      </div>`).join("")}
+    </details>`;
+  }).join("") + `</div>`;
+
+  list.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
+    const q = quizzes.find(x => x.id === b.dataset.copy);
+    toast(await copy(q.link) ? "Link copied for " + q.topic + ", Set " + q.set + "." : "Couldn't copy. Use the Open button and copy the address instead.");
+  });
+  list.querySelectorAll("[data-wa]").forEach(a => {
+    a.onclick = () => { a.href = "https://wa.me/?text=" + encodeURIComponent(message(quizzes.find(x => x.id === a.dataset.wa))); };
+  });
+}
+
+function message(q) {
+  const batch = document.getElementById("batch").value.trim();
+  const due = document.getElementById("due").value.trim();
+  let m = `*${q.subject} quiz*${batch ? " – " + batch : ""}\n${q.chapter}\n${q.topic} (Set ${q.set})\n\nAttempt it on your own, without books. Write your full name the same way every time.\n${q.link}`;
+  if (due) m += `\n\nSubmit by: ${due}`;
+  return m;
+}
+</script>
+</body>
+</html>

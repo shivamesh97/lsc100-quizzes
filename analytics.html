@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Analytics – Teacher Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="assets/app.css">
+<script src="config.js"></script>
+<script src="assets/demo.js"></script>
+<script src="assets/app.js"></script>
+</head>
+<body>
+<main id="main"><p class="loading">Loading…</p></main>
+
+<script>
+const { esc, api, me, header, natural, prefs } = Portal;
+const main = document.getElementById("main");
+const F = { subject: "", cls: "", batch: "", chapter: "" };
+let user, data = null, studentSort = prefs.get("an_sort", "avg"), pickedStudent = null, pickedQuiz = null;
+
+const norm = s => String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+const pct = x => Math.round(x * 100);
+const day = d => d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+const classLabel = c => /^\d+$/.test(c) ? "Class " + c : c;
+
+(async function start() {
+  try { user = await me(); } catch (e) { if (e.code !== "signin") main.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
+  header("analytics", user);
+  const saved = prefs.get("an_subject", ""), counts = user.quizCounts || {};
+  F.subject = user.subjects.includes(saved) ? saved : (user.subjects.find(s => counts[s] > 0) || user.subjects[0]);
+  main.innerHTML = `
+    <div class="panel-head">
+      <div><h1>Analytics</h1><p class="lede">Each student's first attempt at each quiz counts, so retakes don't hide what they knew the first time.</p></div>
+      <span class="meta" id="sync"></span>
+    </div>
+    <div class="panel"><div class="toolbar">
+      <div class="field"><label class="label" for="f-subject">Subject</label><select class="input" id="f-subject">${user.subjects.map(s => `<option ${s === F.subject ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
+      <div class="field"><label class="label" for="f-cls">Class</label><select class="input" id="f-cls"></select></div>
+      <div class="field"><label class="label" for="f-batch">Batch</label><select class="input" id="f-batch"></select></div>
+      <div class="field"><label class="label" for="f-chapter">Chapter</label><select class="input" id="f-chapter"></select></div>
+    </div></div>
+    <div id="body"><p class="loading">Loading results…</p></div>`;
+  document.getElementById("f-subject").onchange = e => { F.subject = e.target.value; prefs.set("an_subject", F.subject); F.cls = F.batch = F.chapter = ""; load(); };
+  ["cls", "batch", "chapter"].forEach(k => document.getElementById("f-" + k).onchange = e => { F[k] = e.target.value; if (k === "cls") F.chapter = ""; pickedStudent = pickedQuiz = null; render(); });
+  load();
+})();
+
+async function load() {
+  document.getElementById("body").innerHTML = `<p class="loading">Loading results…</p>`;
+  pickedStudent = pickedQuiz = null;
+  try { data = await api("analytics", { subject: F.subject }); }
+  catch (e) { if (e.code !== "signin") document.getElementById("body").innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
+  const s = data.lastSync ? new Date(data.lastSync) : null;
+  document.getElementById("sync").textContent = s ? "Scores updated " + s.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) + " · refreshes every 15 min" : "Scores refresh every 15 minutes";
+  render();
+}
+
+function options(id, values, current, allLabel, fmt) {
+  const el = document.getElementById(id);
+  el.innerHTML = `<option value="">${allLabel}</option>` + values.map(v => `<option value="${esc(v)}" ${v === current ? "selected" : ""}>${esc(fmt ? fmt(v) : v)}</option>`).join("");
+}
+
+function render() {
+  const body = document.getElementById("body");
+  const quizById = {}; data.quizzes.forEach(q => quizById[q.id] = q);
+
+  // filter options
+  const classes = [...new Set(data.quizzes.map(q => q.cls))].sort(natural);
+  if (classes.length === 1) F.cls = classes[0];
+  options("f-cls", classes, F.cls, "All classes", classLabel);
+  const chapters = [...new Set(data.quizzes.filter(q => !F.cls || q.cls === F.cls).map(q => q.chapter))].sort(natural);
+  options("f-chapter", chapters, F.chapter, "All chapters");
+  const batchNames = {};
+  data.responses.forEach(r => { const k = norm(r[3]); if (k && !batchNames[k]) batchNames[k] = r[3]; });
+  options("f-batch", Object.keys(batchNames).sort(natural), F.batch, "All batches", k => batchNames[k]);
+
+  // first attempt per student per quiz
+  const rows = data.responses.map(r => ({ t: new Date(r[0]), q: quizById[r[1]], name: r[2], batch: r[3], score: r[4], out: r[5], ans: r[6] }))
+    .filter(r => r.q && r.out > 0 && norm(r.name))
+    .filter(r => (!F.cls || r.q.cls === F.cls) && (!F.chapter || r.q.chapter === F.chapter) && (!F.batch || norm(r.batch) === F.batch))
+    .sort((a, b) => a.t - b.t);
+  const seen = new Set(), attempts = {};
+  const first = [];
+  rows.forEach(r => {
+    r.key = norm(r.name) + "|" + norm(r.batch);
+    const k = r.key + "|" + r.q.id;
+    attempts[k] = (attempts[k] || 0) + 1;
+    if (!seen.has(k)) { seen.add(k); first.push(r); }
+  });
+
+  if (!data.quizzes.length) { body.innerHTML = `<div class="panel empty"><strong>No ${esc(F.subject)} quizzes yet</strong><span>Results appear here once quizzes are created and students submit them.</span></div>`; return; }
+  if (!first.length) { body.innerHTML = `<div class="panel empty"><strong>No submissions for this selection yet</strong><span>Scores appear within 15 minutes of a student submitting a quiz. Try another batch or chapter.</span></div>`; return; }
+
+  // students
+  const studs = {};
+  first.forEach(r => {
+    const s = studs[r.key] = studs[r.key] || { key: r.key, name: r.name, batch: r.batch, list: [] };
+    if (/[A-Z]/.test(r.name) && !/[A-Z]/.test(s.name)) s.name = r.name;
+    s.list.push(r);
+  });
+  const students = Object.values(studs).map(s => {
+    s.avg = s.list.reduce((a, r) => a + r.score / r.out, 0) / s.list.length;
+    s.retakes = s.list.reduce((a, r) => a + (attempts[r.key + "|" + r.q.id] - 1), 0);
+    return s;
+  });
+  const sorters = { avg: (a, b) => a.avg - b.avg, name: (a, b) => natural(a.name, b.name), quizzes: (a, b) => b.list.length - a.list.length };
+  students.sort(sorters[studentSort] || sorters.avg);
+
+  // quizzes
+  const byQuiz = {};
+  first.forEach(r => (byQuiz[r.q.id] = byQuiz[r.q.id] || []).push(r));
+  const quizStats = Object.keys(byQuiz).map(id => {
+    const list = byQuiz[id], q = quizById[id];
+    return { q, n: list.length, avg: list.reduce((a, r) => a + r.score / r.out, 0) / list.length, last: Math.max(...list.map(r => +r.t)), list };
+  }).sort((a, b) => natural(a.q.chapter + " " + a.q.topic + " " + a.q.set, b.q.chapter + " " + b.q.topic + " " + b.q.set));
+  if (!pickedQuiz || !byQuiz[pickedQuiz]) pickedQuiz = quizStats.slice().sort((a, b) => b.last - a.last)[0].q.id;
+
+  // topics
+  const byTopic = {};
+  first.forEach(r => { const k = r.q.chapter + " › " + r.q.topic; (byTopic[k] = byTopic[k] || []).push(r.score / r.out); });
+  const topics = Object.keys(byTopic).map(k => ({ k, avg: byTopic[k].reduce((a, b) => a + b, 0) / byTopic[k].length, n: byTopic[k].length })).sort((a, b) => a.avg - b.avg).slice(0, 8);
+
+  const overall = first.reduce((a, r) => a + r.score / r.out, 0) / first.length;
+  const needHelp = students.filter(s => s.avg < 0.4).length;
+
+  body.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:20px">
+    <div class="tiles">
+      <div class="tile"><span class="label">Students</span><b>${students.length}</b><span class="meta">${needHelp} need help</span></div>
+      <div class="tile"><span class="label">Average score</span><b>${pct(overall)}%</b><span class="meta">across all submissions</span></div>
+      <div class="tile"><span class="label">Submissions</span><b>${first.length}</b><span class="meta">first attempts</span></div>
+      <div class="tile"><span class="label">Quizzes taken</span><b>${quizStats.length}</b><span class="meta">of ${data.quizzes.filter(q => (!F.cls || q.cls === F.cls) && (!F.chapter || q.chapter === F.chapter)).length} available</span></div>
+    </div>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Students</h2><span class="meta">Select a student to see each quiz they took</span></div>
+      <div class="scroll"><table>
+        <thead><tr>
+          <th><button data-sort="name">Student${studentSort === "name" ? " ↓" : ""}</button></th>
+          <th class="r"><button data-sort="quizzes">Quizzes${studentSort === "quizzes" ? " ↓" : ""}</button></th>
+          <th class="r"><button data-sort="avg">Average${studentSort === "avg" ? " ↑" : ""}</button></th>
+          <th class="hide-sm">Recent scores</th><th>Status</th></tr></thead>
+        <tbody>${students.map(s => `<tr class="click" tabindex="0" data-student="${esc(s.key)}" aria-selected="${s.key === pickedStudent}">
+          <td><strong>${esc(s.name)}</strong><div class="meta">${esc(s.batch)}</div></td>
+          <td class="r num">${s.list.length}</td><td class="r num">${pct(s.avg)}%</td>
+          <td class="hide-sm">${spark(s.list.slice(-6).map(r => r.score / r.out))}</td><td>${status(s.avg)}</td></tr>
+          ${s.key === pickedStudent ? `<tr><td colspan="5" style="background:var(--sunk)">${studentDetail(s)}</td></tr>` : ""}`).join("")}
+        </tbody></table></div>
+    </section>
+
+    <div class="grid2">
+      <section class="panel">
+        <div class="panel-head"><h2>Weakest topics</h2><span class="meta">Average score, lowest first</span></div>
+        <div class="bars">${topics.map(t => bar(t.k, t.avg, t.n + " submissions")).join("")}</div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Quizzes</h2><span class="meta">Select one to see its questions</span></div>
+        <div class="scroll"><table>
+          <thead><tr><th>Topic</th><th class="r">Taken by</th><th class="r">Average</th></tr></thead>
+          <tbody>${quizStats.map(s => `<tr class="click" tabindex="0" data-quiz="${esc(s.q.id)}" aria-selected="${s.q.id === pickedQuiz}">
+            <td><strong>${esc(s.q.topic)}</strong> <span class="meta">Set ${esc(s.q.set)}</span><div class="meta">${esc(s.q.chapter)}</div></td>
+            <td class="r num">${s.n}</td><td class="r num">${pct(s.avg)}%<span class="mini" aria-hidden="true"><i style="width:${pct(s.avg)}%"></i></span></td></tr>`).join("")}
+          </tbody></table></div>
+      </section>
+    </div>
+
+    ${questionPanel(quizStats.find(s => s.q.id === pickedQuiz))}
+    </div>`;
+
+  body.querySelectorAll("[data-sort]").forEach(b => b.onclick = () => { studentSort = b.dataset.sort; prefs.set("an_sort", studentSort); render(); });
+  const pick = (sel, fn) => body.querySelectorAll(sel).forEach(tr => {
+    tr.onclick = () => fn(tr);
+    tr.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fn(tr); } };
+  });
+  pick("[data-student]", tr => { pickedStudent = pickedStudent === tr.dataset.student ? null : tr.dataset.student; render(); });
+  pick("[data-quiz]", tr => { pickedQuiz = tr.dataset.quiz; render(); document.getElementById("qpanel")?.scrollIntoView({ behavior: "smooth", block: "nearest" }); });
+}
+
+function status(a) {
+  if (a < 0.4) return `<span class="pill bad">⚠ Needs help</span>`;
+  if (a < 0.6) return `<span class="pill warn">◐ Watch</span>`;
+  return `<span class="pill good">✓ On track</span>`;
+}
+
+function spark(vals) {
+  const w = 76, h = 22, p = 4;
+  if (!vals.length) return "";
+  const x = i => vals.length === 1 ? w / 2 : p + i * (w - 2 * p) / (vals.length - 1);
+  const y = v => h - p - v * (h - 2 * p);
+  const pts = vals.map((v, i) => x(i).toFixed(1) + "," + y(v).toFixed(1)).join(" ");
+  const last = vals[vals.length - 1];
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="Last ${vals.length} scores: ${vals.map(v => pct(v) + "%").join(", ")}"><title>${vals.map(v => pct(v) + "%").join(" → ")}</title>
+    ${vals.length > 1 ? `<polyline points="${pts}"/>` : ""}<circle cx="${x(vals.length - 1)}" cy="${y(last)}" r="3.5"/></svg>`;
+}
+
+function bar(label, v, note) {
+  return `<div class="bar-row" title="${esc(label)}: ${pct(v)}% (${esc(note)})">
+    <div class="what">${esc(label)} <span class="meta">${esc(note)}</span></div>
+    <div class="track"><div class="fill" style="width:${Math.max(2, pct(v))}%"></div></div><div class="val">${pct(v)}%</div></div>`;
+}
+
+function studentDetail(s) {
+  const list = s.list.slice().sort((a, b) => b.t - a.t);
+  return `<div style="display:flex;flex-direction:column;gap:6px;padding:4px 0">
+    <span class="label">${esc(s.name)} · ${list.length} quiz${list.length === 1 ? "" : "zes"}${s.retakes ? ` · ${s.retakes} retake${s.retakes === 1 ? "" : "s"} not counted` : ""}</span>
+    ${list.map(r => `<div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:space-between">
+      <span>${esc(r.q.chapter)} › ${esc(r.q.topic)} <span class="meta">Set ${esc(r.q.set)}</span></span>
+      <span class="num"><span class="meta">${day(r.t)}</span> &nbsp;<strong>${r.score}/${r.out}</strong></span></div>`).join("")}</div>`;
+}
+
+function questionPanel(s) {
+  if (!s) return "";
+  const n = s.list[0].out;
+  const qs = Array.from({ length: n }, (_, i) => ({
+    i, text: (s.q.questions && s.q.questions[i]) || "Question " + (i + 1),
+    right: s.list.filter(r => r.ans[i] === "Y").length / s.list.length
+  })).sort((a, b) => a.right - b.right);
+  return `<section class="panel" id="qpanel">
+    <div class="panel-head"><div><span class="label">Question breakdown</span><h2>${esc(s.q.topic)} · Set ${esc(s.q.set)}</h2></div>
+    <span class="meta">${s.n} students · share who answered correctly, lowest first</span></div>
+    <div class="bars">${qs.map(q => bar(q.text, q.right, Math.round(q.right * s.list.length) + " of " + s.list.length + " correct")).join("")}</div>
+    <p class="meta" style="margin:0">Questions near the top are worth re-teaching in class.</p>
+  </section>`;
+}
+</script>
+</body>
+</html>
