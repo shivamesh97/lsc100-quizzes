@@ -5,7 +5,7 @@
  * demo mode with sample data, so you can look around before connecting it.
  */
 window.PORTAL_CONFIG = {
-  CENTRE_NAME: "Your Tuition Centre",
+  CENTRE_NAME: "LSc 100",
   GOOGLE_CLIENT_ID: "PASTE_YOUR_CLIENT_ID.apps.googleusercontent.com",
   API_URL: "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL"
 };
