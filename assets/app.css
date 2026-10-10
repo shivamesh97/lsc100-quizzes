@@ -26,6 +26,8 @@ button,input,select{font:inherit;color:inherit}
 .top-in{max-width:1120px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);margin-right:auto;min-width:0}
 .brand .ring{flex:none;width:22px;height:22px;border-radius:50%;border:4px solid var(--accent)}
+.brand img.logo{height:36px;width:auto;max-width:140px;object-fit:contain;flex:none}
+.signin img.logo-lg{height:64px;width:auto;max-width:220px;object-fit:contain}
 .brand b{font-family:var(--display);font-size:18px;line-height:1.1;display:block}
 .brand small{display:block;color:var(--muted);font-size:12px;letter-spacing:.05em;text-transform:uppercase}
 .nav{display:flex;gap:4px}

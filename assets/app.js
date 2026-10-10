@@ -71,12 +71,22 @@
   const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const natural = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
 
+  // Logo: set LOGO in config.js (e.g. "assets/logo.jpg"); without it, a simple ring mark is drawn.
+  function logoHtml(cls) {
+    return CFG.LOGO ? `<img class="${cls}" src="${esc(CFG.LOGO)}" alt="">` : `<span class="ring" aria-hidden="true"></span>`;
+  }
+  if (CFG.LOGO) {
+    const icon = document.createElement("link");
+    icon.rel = "icon"; icon.href = CFG.LOGO;
+    document.head.appendChild(icon);
+  }
+
   function header(active, user) {
     const el = document.createElement("header");
     el.className = "top";
     el.innerHTML =
       `<div class="top-in">
-        <a class="brand" href="index.html"><span class="ring" aria-hidden="true"></span><span><b>${esc(CFG.CENTRE_NAME || "Teacher Portal")}</b><small>Teacher Portal</small></span></a>
+        <a class="brand" href="index.html">${logoHtml("logo")}<span><b>${esc(CFG.CENTRE_NAME || "Teacher Portal")}</b><small>Teacher Portal</small></span></a>
         ${user ? `<nav class="nav" aria-label="Main">
           <a href="index.html" ${active === "subjects" ? 'aria-current="page"' : ""}>Subjects</a>
           <a href="analytics.html" ${active === "analytics" ? 'aria-current="page"' : ""}>Analytics</a>
@@ -118,5 +128,5 @@
     set(k, v) { ls.set("tp_pref_" + k, JSON.stringify(v)); }
   };
 
-  window.Portal = { CFG, DEMO, TOKEN, ME, ls, token, payload, api, me, signOut, header, esc, natural, toast, copy, prefs, goLogin };
+  window.Portal = { logoHtml, CFG, DEMO, TOKEN, ME, ls, token, payload, api, me, signOut, header, esc, natural, toast, copy, prefs, goLogin };
 })();
