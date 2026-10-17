@@ -27,8 +27,9 @@
   }
 
   // ---------- class switch shared by every page ----------
-  const CLASSES = (CFG.CLASSES && CFG.CLASSES.length ? CFG.CLASSES : ["11", "12"]).map(String);
-  function getClass() { const c = String(prefsGet("class", CLASSES[0])); return CLASSES.includes(c) ? c : CLASSES[0]; }
+  const CLASSES = (CFG.CLASSES && CFG.CLASSES.length ? CFG.CLASSES : ["9", "10", "11", "12"]).map(String);
+  const DEFAULT_CLASS = CLASSES.includes("11") ? "11" : CLASSES[0];
+  function getClass() { const c = String(prefsGet("class", DEFAULT_CLASS)); return CLASSES.includes(c) ? c : DEFAULT_CLASS; }
   function setClass(c) {
     prefsSet("class", c);
     document.querySelectorAll("[data-class-btn]").forEach(b => b.setAttribute("aria-pressed", b.dataset.classBtn === c));
@@ -121,8 +122,8 @@
           <a href="index.html" ${active === "subjects" ? 'aria-current="page"' : ""}>Subjects</a>
           <a href="analytics.html" ${active === "analytics" ? 'aria-current="page"' : ""}>Analytics</a>
         </nav>` : ""}
-        ${user && opts.classSwitch ? `<div class="classsw" role="group" aria-label="Class">${CLASSES.map(c =>
-          `<button type="button" data-class-btn="${esc(c)}" aria-pressed="${c === cls}">Class ${esc(c)}</button>`).join("")}</div>` : ""}
+        ${user && opts.classSwitch ? `<div class="classsw" role="group" aria-label="Class"><span class="classsw-label">Class</span>${CLASSES.map(c =>
+          `<button type="button" data-class-btn="${esc(c)}" aria-pressed="${c === cls}" aria-label="Class ${esc(c)}">${esc(c)}</button>`).join("")}</div>` : ""}
         <div class="who">
           ${user && user.picture ? `<img src="${esc(user.picture)}" alt="" referrerpolicy="no-referrer">` : ""}
           ${user ? `<span>${esc(user.name || user.email)}</span>` : ""}

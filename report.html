@@ -32,6 +32,7 @@ let student = null;
   try { data = await api("analytics", { subject }); }
   catch (e) { if (e.code !== "signin") main.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
   student = compute(data, { cls }).students.find(s => s.key === key);
+  if (student && !student.list.length) { main.innerHTML = `<div class="panel empty"><strong>${esc(student.name)} hasn't taken any ${esc(subject)} quizzes yet</strong><span>The report card appears after their first quiz.</span><a class="btn ghost" href="analytics.html#students">Back to analytics</a></div>`; return; }
   if (!student) { main.innerHTML = `<div class="panel empty"><strong>No quizzes found for this student</strong><span>Go back to Analytics and pick the student again.</span><a class="btn ghost" href="analytics.html#students">Back to analytics</a></div>`; return; }
   document.title = student.name + " – " + subject + " report";
   render();
@@ -49,7 +50,7 @@ function render() {
       <a href="analytics.html#students" class="meta">← Back to analytics</a>
       <div class="tools">
         <button class="btn sm ghost" id="copy-text" type="button">Copy summary</button>
-        <a class="btn sm accent" id="wa" href="#" target="_blank" rel="noopener">Send on WhatsApp</a>
+        <a class="btn sm accent" id="wa" href="#" target="_blank" rel="noopener">${student.phone ? "Send to " + esc(student.phone) : "Send on WhatsApp"}</a>
         <button class="btn sm ghost" id="print" type="button">Print / Save PDF</button>
       </div>
     </div>
@@ -62,7 +63,7 @@ function render() {
 
       <div>
         <h1>${esc(s.name)}</h1>
-        <p class="lede" style="margin-top:4px">${esc(subject)} · Class ${esc(cls)} · quizzes from ${esc(from)} to ${esc(to)}</p>
+        <p class="lede" style="margin-top:4px">${esc(subject)} · Class ${esc(cls)}${s.school ? " · " + esc(s.school) : ""} · quizzes from ${esc(from)} to ${esc(to)}</p>
       </div>
 
       <div class="facts">
@@ -112,7 +113,9 @@ function render() {
   document.getElementById("print").onclick = () => window.print();
   document.getElementById("copy-text").onclick = async () => toast(await copy(summary(strong, weak)) ? "Summary copied. Paste it into WhatsApp." : "Couldn't copy. Use Send on WhatsApp instead.");
   const wa = document.getElementById("wa");
-  wa.onclick = () => { wa.href = "https://wa.me/?text=" + encodeURIComponent(summary(strong, weak)); };
+  // With a phone number on the Students tab, WhatsApp opens straight to that chat
+  const phone = s.phone && s.phone.length === 10 ? "91" + s.phone : (s.phone || "");
+  wa.onclick = () => { wa.href = "https://wa.me/" + phone + "?text=" + encodeURIComponent(summary(strong, weak)); };
 }
 
 function bar(t) {

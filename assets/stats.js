@@ -16,35 +16,54 @@
     filter = filter || {};
     const quizById = {};
     data.quizzes.forEach(q => { quizById[q.id] = q; });
+    // The Students tab, for this class. If it's empty, students are grouped by the names they typed.
+    const roster = (data.students || []).filter(s => !filter.cls || String(s.cls) === String(filter.cls));
+    const useRoster = roster.length > 0;
+    const rosterById = {};
+    roster.forEach(s => { rosterById[s.id] = s; });
+
     const rows = data.responses
-      .map(r => ({ t: new Date(r[0]), q: quizById[r[1]], name: r[2], klass: r[3], score: Number(r[4]) || 0, out: Number(r[5]) || 0, ans: String(r[6] || "") }))
+      .map(r => ({ t: new Date(r[0]), q: quizById[r[1]], name: r[2], klass: r[3], score: Number(r[4]) || 0, out: Number(r[5]) || 0, ans: String(r[6] || ""), sid: String(r[7] || "") }))
       .filter(r => r.q && r.out > 0 && norm(r.name))
       .filter(r => (!filter.cls || r.q.cls === filter.cls) && (!filter.chapter || r.q.chapter === filter.chapter))
       .sort((a, b) => a.t - b.t);
 
+    // Responses that couldn't be linked to a student on the list
+    const unmatchedMap = {};
+    const linked = rows.filter(r => {
+      if (!useRoster) { r.key = studentKey(r.name, r.klass); return true; }
+      if (r.sid && rosterById[r.sid]) { r.key = r.sid; return true; }
+      const k = norm(r.name);
+      const u = unmatchedMap[k] = unmatchedMap[k] || { typed: r.name.trim(), cls: r.q.cls, count: 0, last: r.t };
+      u.count++; u.last = r.t;
+      return false;
+    });
+    const unmatched = Object.values(unmatchedMap).sort((a, b) => b.last - a.last);
+
     // Only each student's first attempt at each quiz counts
     const seen = new Set(), attempts = {}, first = [];
-    rows.forEach(r => {
-      r.key = studentKey(r.name, r.klass);
+    linked.forEach(r => {
       const k = r.key + "|" + r.q.id;
       attempts[k] = (attempts[k] || 0) + 1;
       if (!seen.has(k)) { seen.add(k); first.push(r); }
     });
 
     const map = {};
+    if (useRoster) roster.forEach(s => { map[s.id] = { key: s.id, id: s.id, name: s.name, klass: "Class " + s.cls, school: s.school || "", phone: s.phone || "", list: [] }; });
     first.forEach(r => {
       const s = map[r.key] = map[r.key] || { key: r.key, name: r.name, klass: r.klass, list: [] };
-      if (/[A-Z]/.test(r.name) && !/[A-Z]/.test(s.name)) s.name = r.name;
+      if (!useRoster && /[A-Z]/.test(r.name) && !/[A-Z]/.test(s.name)) s.name = r.name;
       s.list.push(r);
     });
     const students = Object.values(map).map(s => {
-      s.avg = mean(s.list);
+      const has = s.list.length > 0;
+      s.avg = has ? mean(s.list) : null;
       s.retakes = s.list.reduce((a, r) => a + (attempts[r.key + "|" + r.q.id] - 1), 0);
       s.trend = trendOf(s.list);
-      s.last = s.list[s.list.length - 1].t;
+      s.last = has ? s.list[s.list.length - 1].t : null;
       return s;
     });
-    return { quizById, first, attempts, students };
+    return { quizById, first, attempts, students, unmatched, roster, useRoster };
   }
 
   // Change between a student's last 3 quizzes and the 3 before (needs at least 4 quizzes)
@@ -61,6 +80,7 @@
   }
 
   function status(a) {
+    if (a == null) return { cls: "none", text: "– No quizzes yet" };
     if (a < 0.4) return { cls: "bad", text: "⚠ Needs help" };
     if (a < 0.6) return { cls: "warn", text: "◐ Watch" };
     return { cls: "good", text: "✓ On track" };

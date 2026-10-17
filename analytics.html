@@ -79,9 +79,10 @@ function render() {
   if (!quizzesHere.length) { body.innerHTML = `<div class="panel empty"><strong>No Class ${esc(cls)} ${esc(F.subject)} quizzes yet</strong><span>Switch class at the top, or pick another subject.</span></div>`; return; }
   view = compute(data, { cls, chapter: F.chapter });
   const { first, students } = view;
-  if (!first.length) { body.innerHTML = `<div class="panel empty"><strong>No submissions for this selection yet</strong><span>Scores appear within about an hour of a student submitting a quiz, or straight away with Refresh now.</span></div>`; return; }
+  if (!first.length && !view.unmatched.length) { body.innerHTML = `<div class="panel empty"><strong>No submissions for this selection yet</strong><span>Scores appear within about an hour of a student submitting a quiz, or straight away with Refresh now.</span></div>`; return; }
 
-  const sorters = { avg: (a, b) => a.avg - b.avg, name: (a, b) => natural(a.name, b.name), quizzes: (a, b) => b.list.length - a.list.length };
+  const avgKey = s => s.avg == null ? 2 : s.avg; // students with no quizzes go last
+  const sorters = { avg: (a, b) => avgKey(a) - avgKey(b), name: (a, b) => natural(a.name, b.name), quizzes: (a, b) => b.list.length - a.list.length };
   students.sort(sorters[studentSort] || sorters.avg);
 
   // quizzes
@@ -89,19 +90,22 @@ function render() {
   first.forEach(r => (byQuiz[r.q.id] = byQuiz[r.q.id] || []).push(r));
   const quizStats = Object.keys(byQuiz).map(id => {
     const list = byQuiz[id];
-    return { q: view.quizById[id], n: list.length, avg: mean(list), last: Math.max(...list.map(r => +r.t)), list };
+    const done = new Set(list.map(r => r.key));
+    const missing = view.useRoster ? view.roster.filter(s => !done.has(s.id)).map(s => s.name) : null;
+    return { q: view.quizById[id], n: list.length, avg: mean(list), last: Math.max(...list.map(r => +r.t)), list, missing };
   }).sort((a, b) => natural(a.q.chapter + " " + a.q.topic + " " + a.q.set, b.q.chapter + " " + b.q.topic + " " + b.q.set));
-  if (!pickedQuiz || !byQuiz[pickedQuiz]) pickedQuiz = quizStats.slice().sort((a, b) => b.last - a.last)[0].q.id;
+  if ((!pickedQuiz || !byQuiz[pickedQuiz]) && quizStats.length) pickedQuiz = quizStats.slice().sort((a, b) => b.last - a.last)[0].q.id;
   const topicsAll = topicAverages(first);
   const overall = mean(first);
-  const needHelp = students.filter(s => s.avg < 0.4).length;
+  const needHelp = students.filter(s => s.avg != null && s.avg < 0.4).length;
+  const noQuiz = students.filter(s => !s.list.length).length;
   const available = quizzesHere.filter(q => !F.chapter || q.chapter === F.chapter).length;
 
   body.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:20px">
     <div class="tiles">
-      <div class="tile"><span class="label">Students</span><b>${students.length}</b><span class="meta">${needHelp} need help</span></div>
-      <div class="tile"><span class="label">Average score</span><b>${pct(overall)}%</b><span class="meta">across all submissions</span></div>
+      <div class="tile"><span class="label">Students</span><b>${students.length}</b><span class="meta">${needHelp} need help${noQuiz ? ` · ${noQuiz} no quizzes yet` : ""}</span></div>
+      <div class="tile"><span class="label">Average score</span><b>${first.length ? pct(overall) + "%" : "—"}</b><span class="meta">across all submissions</span></div>
       <div class="tile"><span class="label">Submissions</span><b>${first.length}</b><span class="meta">first attempts</span></div>
       <div class="tile"><span class="label">Quizzes taken</span><b>${quizStats.length}</b><span class="meta">of ${available} available</span></div>
     </div>
@@ -138,6 +142,7 @@ function render() {
 function studentsTab(students, first) {
   const improved = students.filter(s => s.trend != null && s.trend >= 0.05).sort((a, b) => b.trend - a.trend).slice(0, 3);
   return `
+    ${unmatchedPanel()}
     <section class="panel">
       <div class="panel-head"><h2>Most improved</h2><span class="meta">Last 3 quizzes compared with the 3 before</span></div>
       ${improved.length ? `<div class="improved">${improved.map((s, i) => `
@@ -161,8 +166,10 @@ function studentsTab(students, first) {
           <th class="r"><button data-sort="quizzes">Quizzes${studentSort === "quizzes" ? " ↓" : ""}</button></th>
           <th class="r"><button data-sort="avg">Average${studentSort === "avg" ? " ↑" : ""}</button></th>
           <th class="r">Trend</th><th class="hide-sm">Recent scores</th><th>Status</th></tr></thead>
-        <tbody>${students.map(s => `<tr class="click" tabindex="0" data-student="${esc(s.key)}" data-name="${esc(norm(s.name))}" aria-selected="${s.key === pickedStudent}">
-          <td><strong>${esc(s.name)}</strong><div class="meta">${esc(s.klass)}</div></td>
+        <tbody>${students.map(s => !s.list.length ? `<tr class="muted" data-name="${esc(norm(s.name))}" data-student-empty>
+          <td><strong>${esc(s.name)}</strong><div class="meta">${esc(s.klass)}${s.school ? " · " + esc(s.school) : ""}</div></td>
+          <td class="r num">0</td><td class="r">—</td><td class="r">—</td><td class="hide-sm"></td><td>${statusPill(null)}</td></tr>` : `<tr class="click" tabindex="0" data-student="${esc(s.key)}" data-name="${esc(norm(s.name))}" aria-selected="${s.key === pickedStudent}">
+          <td><strong>${esc(s.name)}</strong><div class="meta">${esc(s.klass)}${s.school ? " · " + esc(s.school) : ""}</div></td>
           <td class="r num">${s.list.length}</td><td class="r num">${pct(s.avg)}%</td><td class="r num">${trendCell(s.trend)}</td>
           <td class="hide-sm">${spark(s.list.slice(-6).map(r => r.score / r.out))}</td><td>${statusPill(s.avg)}</td></tr>
           ${s.key === pickedStudent ? `<tr data-detail-for="${esc(norm(s.name))}"><td colspan="6" style="background:var(--sunk)">${studentDetail(s)}</td></tr>` : ""}`).join("")}
@@ -179,7 +186,7 @@ function applySearch() {
   document.querySelectorAll("[data-name]").forEach(tr => {
     const hit = !q || tr.dataset.name.includes(q);
     tr.hidden = !hit;
-    if (hit && tr.hasAttribute("data-student")) shown++;
+    if (hit && (tr.hasAttribute("data-student") || tr.hasAttribute("data-student-empty"))) shown++;
   });
   document.querySelectorAll("[data-detail-for]").forEach(tr => { tr.hidden = !!q && !tr.dataset.detailFor.includes(q); });
   const nm = document.getElementById("no-match"); if (nm) nm.hidden = shown > 0;
@@ -243,10 +250,10 @@ function topicsTab(topicsAll, quizStats) {
       <section class="panel">
         <div class="panel-head"><h2>Quizzes</h2><span class="meta">Select one to see its questions</span></div>
         <div class="scroll"><table>
-          <thead><tr><th>Topic</th><th class="r">Taken by</th><th class="r">Average</th></tr></thead>
+          <thead><tr><th>Topic</th><th class="r">Taken by</th>${view.useRoster ? `<th class="r">Not yet</th>` : ""}<th class="r">Average</th></tr></thead>
           <tbody>${quizStats.map(s => `<tr class="click" tabindex="0" data-quiz="${esc(s.q.id)}" aria-selected="${s.q.id === pickedQuiz}">
             <td><strong>${esc(s.q.topic)}</strong> <span class="meta">Set ${esc(s.q.set)}</span><div class="meta">${esc(s.q.chapter)}</div></td>
-            <td class="r num">${s.n}</td><td class="r num">${pct(s.avg)}%<span class="mini" aria-hidden="true"><i style="width:${pct(s.avg)}%"></i></span></td></tr>`).join("")}
+            <td class="r num">${s.n}</td>${view.useRoster ? `<td class="r num">${s.missing.length}</td>` : ""}<td class="r num">${pct(s.avg)}%<span class="mini" aria-hidden="true"><i style="width:${pct(s.avg)}%"></i></span></td></tr>`).join("")}
           </tbody></table></div>
       </section>
     </div>
@@ -265,8 +272,36 @@ function questionPanel(s) {
     <span class="meta">${s.n} students · share who answered correctly, lowest first</span></div>
     <div class="bars">${qs.map(q => bar(q.text, q.right, Math.round(q.right * s.list.length) + " of " + s.list.length + " correct")).join("")}</div>
     <p class="meta" style="margin:0">Questions near the top are worth re-teaching in class.</p>
+    ${s.missing && s.missing.length ? `<p style="margin:0"><span class="label">Not attempted yet (${s.missing.length})</span><br>${s.missing.map(esc).join(", ")}</p>` : ""}
   </section>`;
 }
+
+// ---------- names that didn't match the student list ----------
+function unmatchedPanel() {
+  if (!view.useRoster || !view.unmatched.length) return "";
+  const options = view.roster.slice().sort((a, b) => natural(a.name, b.name)).map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("");
+  return `<section class="panel unmatched">
+    <div class="panel-head"><h2>Unmatched names (${view.unmatched.length})</h2><span class="meta">From older quizzes where students typed their name</span></div>
+    <p class="meta" style="margin:0">Pick the right student for each name. It's remembered, so it only needs doing once.</p>
+    <div>${view.unmatched.map((u, i) => `<div class="fixrow">
+      <div><strong>"${esc(u.typed)}"</strong> <span class="meta">Class ${esc(u.cls)} · ${u.count} quiz${u.count === 1 ? "" : "zes"}</span></div>
+      <select class="input" id="fix-${i}" aria-label="Student for ${esc(u.typed)}"><option value="">Choose student…</option>${options}</select>
+      <button class="btn sm" type="button" data-fix="${i}">Save</button></div>`).join("")}</div>
+  </section>`;
+}
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-fix]");
+  if (!b) return;
+  const u = view.unmatched[Number(b.dataset.fix)];
+  const sid = document.getElementById("fix-" + b.dataset.fix).value;
+  if (!sid) { toast("Choose a student first."); return; }
+  b.disabled = true; b.textContent = "Saving…";
+  try {
+    await api("fixName", { subject: F.subject, typed: u.typed, cls: u.cls, studentId: sid });
+    toast(`Linked "${u.typed}" to ${view.roster.find(s => s.id === sid).name}.`);
+    load();
+  } catch (err) { b.disabled = false; b.textContent = "Save"; toast(err.message); }
+});
 
 // ---------- small charts ----------
 function spark(vals) {
@@ -289,7 +324,7 @@ function bar(label, v, note) {
 function fileBase() { return `${F.subject} Class ${Portal.getClass()}${F.chapter ? " " + F.chapter : ""}`; }
 function csvStudents(students) {
   const rows = [["Student", "Class", "Quizzes", "Average %", "Trend (last 3 vs 3 before)", "Status", "Last quiz"]];
-  students.forEach(s => rows.push([s.name, s.klass, s.list.length, pct(s.avg), s.trend == null ? "" : Math.round(s.trend * 100), status(s.avg).text.replace(/^\S+\s/, ""), day(s.last)]));
+  students.forEach(s => rows.push([s.name, s.klass, s.list.length, s.avg == null ? "" : pct(s.avg), s.trend == null ? "" : Math.round(s.trend * 100), status(s.avg).text.replace(/^\S+\s/, ""), s.last ? day(s.last) : ""]));
   downloadCsv(fileBase() + " students.csv", rows);
 }
 function csvProgress(students, first) {

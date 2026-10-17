@@ -18,12 +18,17 @@
       const when = new Date(start + qi * 6 * 864e5 + rnd() * 864e5).toISOString();
       const ans = diff.map(d => (rnd() < Math.min(0.97, Math.max(0.05, s[2] + [0.18, -0.12, 0.04][si % 3] * (qi / QUIZZES.length - 0.5) - d + 0.1)) ? "Y" : "N")).join("");
       const score = ans.split("Y").length - 1;
-      const name = si === 0 && qi % 3 === 1 ? s[0].toLowerCase() : s[0];
-      RESP.push([when, q.id, name, s[1], score, ans.length, ans]);
+      RESP.push([when, q.id, s[0], "11", score, ans.length, ans, "D" + String(si + 1).padStart(2, "0")]);
     });
   });
   const SENT = { "demo-bio-1": { at: new Date(Date.now() - 6 * 864e5).toISOString(), by: "Mrs. Fernandes" }, "demo-bio-4": { at: new Date(Date.now() - 2 * 864e5).toISOString(), by: "Mrs. Fernandes" } };
-  const ME = { email: "demo.teacher@gmail.com", name: "Demo Teacher", picture: "", subjects: ["Physics","Chemistry","Maths","Biology"] };
+  // Students tab for the demo: the 12 above, plus two who haven't taken a quiz yet
+  const ROSTER = STUDENTS.map((s, i) => ({ id: "D" + String(i + 1).padStart(2, "0"), name: s[0], cls: "11", school: ["MES", "KV1", "SD"][i % 3], phone: "" }))
+    .concat([{ id: "D13", name: "Meera Kamat", cls: "11", school: "MES", phone: "" }, { id: "D14", name: "Kiran Desai", cls: "11", school: "KV1", phone: "" }]);
+  // Two typed names from an older quiz that don't match anyone exactly
+  RESP.push([new Date(start + 864e5).toISOString(), QUIZZES[0].id, "riya f", "11th", 7, 10, "YYNYYNYYNY", ""]);
+  RESP.push([new Date(start + 2 * 864e5).toISOString(), QUIZZES[1].id, "Adi Kerkar", "11th", 4, 10, "NYNNYNYNNY", ""]);
+  const ME = { email: "demo.teacher@gmail.com", name: "Demo Teacher", picture: "", subjects: ["Physics","Chemistry","Maths","Biology","Science","Psychology","Hindi"] };
   function handle(action, p) {
     return new Promise(res => setTimeout(() => {
       if (action === "me") {
@@ -35,8 +40,9 @@
       if (action === "markSent") { SENT[p.quizId] = { at: new Date().toISOString(), by: ME.name }; return res({ ok: true, lastSent: SENT[p.quizId] }); }
       if (action === "analytics" || action === "refresh") {
         const ids = new Set(list.map(q => q.id));
-        return res({ ok: true, quizzes: list, responses: RESP.filter(r => ids.has(r[1])), lastSync: new Date(Date.now() - (action === "refresh" ? 0 : 6 * 60000)).toISOString(), refresh: action === "refresh" ? "done" : "" });
+        return res({ ok: true, quizzes: list, students: p.subject === "Biology" ? ROSTER : [], responses: RESP.filter(r => ids.has(r[1])), lastSync: new Date(Date.now() - (action === "refresh" ? 0 : 6 * 60000)).toISOString(), refresh: action === "refresh" ? "done" : "" });
       }
+      if (action === "fixName") { RESP.forEach(r => { if (!r[7] && r[2].trim().toLowerCase() === String(p.typed).trim().toLowerCase()) r[7] = p.studentId; }); return res({ ok: true }); }
       res({ error: "unknown_action" });
     }, 250));
   }
