@@ -120,7 +120,9 @@
         <a class="brand" href="index.html">${logoHtml("logo")}<span><b>${esc(CFG.CENTRE_NAME || "Teacher Portal")}</b><small>Teacher Portal</small></span></a>
         ${user ? `<nav class="nav" aria-label="Main">
           <a href="index.html" ${active === "subjects" ? 'aria-current="page"' : ""}>Subjects</a>
+          <a href="attendance.html" ${active === "attendance" ? 'aria-current="page"' : ""}>Attendance</a>
           <a href="analytics.html" ${active === "analytics" ? 'aria-current="page"' : ""}>Analytics</a>
+          ${user.isAdmin ? `<a href="overview.html" ${active === "overview" ? 'aria-current="page"' : ""}>Overview</a>` : ""}
         </nav>` : ""}
         ${user && opts.classSwitch ? `<div class="classsw" role="group" aria-label="Class"><span class="classsw-label">Class</span>${CLASSES.map(c =>
           `<button type="button" data-class-btn="${esc(c)}" aria-pressed="${c === cls}" aria-label="Class ${esc(c)}">${esc(c)}</button>`).join("")}</div>` : ""}
@@ -138,7 +140,9 @@
       bn.className = "bottomnav"; bn.setAttribute("aria-label", "Main");
       bn.innerHTML = `
         <a href="index.html" ${active === "subjects" ? 'aria-current="page"' : ""}><span aria-hidden="true">▤</span>Subjects</a>
+        <a href="attendance.html" ${active === "attendance" ? 'aria-current="page"' : ""}><span aria-hidden="true">☑</span>Attendance</a>
         <a href="analytics.html" ${active === "analytics" ? 'aria-current="page"' : ""}><span aria-hidden="true">▥</span>Analytics</a>
+        ${user.isAdmin ? `<a href="overview.html" ${active === "overview" ? 'aria-current="page"' : ""}><span aria-hidden="true">◫</span>Overview</a>` : ""}
         <button type="button" id="signout2"><span aria-hidden="true">⇥</span>Sign out</button>`;
       document.body.appendChild(bn);
       document.body.classList.add("has-bottomnav");

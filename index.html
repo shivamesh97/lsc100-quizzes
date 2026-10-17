@@ -19,7 +19,7 @@ const { DEMO, CFG, esc, api, me, header, ls, token, TOKEN, ME } = Portal;
 const main = document.getElementById("main");
 const params = new URLSearchParams(location.search);
 const next = params.get("next");
-const safeNext = next && /^(quizzes|analytics|report)\.html(\?[\w=&%.\-+]*)?$/.test(next) ? next : null;
+const safeNext = next && /^(quizzes|analytics|report|attendance|overview)\.html(\?[\w=&%.\-+]*)?$/.test(next) ? next : null;
 
 function showSignIn(errorText) {
   header("signin", null);
@@ -86,6 +86,14 @@ async function showHome() {
         <span class="label">Subject</span><b>${esc(s)}</b>
         <span class="meta">${counts[s] || 0} quiz${counts[s] === 1 ? "" : "zes"}</span>
         <span class="go">Open quizzes →</span></a>`).join("")}
+      ${user.isAdmin ? `<a class="card alt" href="overview.html">
+        <span class="label">Admin</span><b>Overview</b>
+        <span class="meta">All subjects and classes in one place</span>
+        <span class="go">Open overview →</span></a>` : ""}
+      <a class="card alt" href="attendance.html">
+        <span class="label">Register</span><b>Attendance</b>
+        <span class="meta">Mark who came to class</span>
+        <span class="go">Take attendance →</span></a>
       <a class="card alt" href="analytics.html">
         <span class="label">Results</span><b>Analytics</b>
         <span class="meta">Scores by student, quiz and question</span>

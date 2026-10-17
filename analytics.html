@@ -165,19 +165,25 @@ function studentsTab(students, first) {
           <th><button data-sort="name">Student${studentSort === "name" ? " ↓" : ""}</button></th>
           <th class="r"><button data-sort="quizzes">Quizzes${studentSort === "quizzes" ? " ↓" : ""}</button></th>
           <th class="r"><button data-sort="avg">Average${studentSort === "avg" ? " ↑" : ""}</button></th>
-          <th class="r">Trend</th><th class="hide-sm">Recent scores</th><th>Status</th></tr></thead>
+          <th class="r">Trend</th><th class="r hide-sm">Attendance</th><th class="hide-sm">Recent scores</th><th>Status</th></tr></thead>
         <tbody>${students.map(s => !s.list.length ? `<tr class="muted" data-name="${esc(norm(s.name))}" data-student-empty>
           <td><strong>${esc(s.name)}</strong><div class="meta">${esc(s.klass)}${s.school ? " · " + esc(s.school) : ""}</div></td>
-          <td class="r num">0</td><td class="r">—</td><td class="r">—</td><td class="hide-sm"></td><td>${statusPill(null)}</td></tr>` : `<tr class="click" tabindex="0" data-student="${esc(s.key)}" data-name="${esc(norm(s.name))}" aria-selected="${s.key === pickedStudent}">
+          <td class="r num">0</td><td class="r">—</td><td class="r">—</td><td class="r num hide-sm">${attCell(s)}</td><td class="hide-sm"></td><td>${statusPill(null)}</td></tr>` : `<tr class="click" tabindex="0" data-student="${esc(s.key)}" data-name="${esc(norm(s.name))}" aria-selected="${s.key === pickedStudent}">
           <td><strong>${esc(s.name)}</strong><div class="meta">${esc(s.klass)}${s.school ? " · " + esc(s.school) : ""}</div></td>
-          <td class="r num">${s.list.length}</td><td class="r num">${pct(s.avg)}%</td><td class="r num">${trendCell(s.trend)}</td>
+          <td class="r num">${s.list.length}</td><td class="r num">${pct(s.avg)}%</td><td class="r num">${trendCell(s.trend)}</td><td class="r num hide-sm">${attCell(s)}</td>
           <td class="hide-sm">${spark(s.list.slice(-6).map(r => r.score / r.out))}</td><td>${statusPill(s.avg)}</td></tr>
-          ${s.key === pickedStudent ? `<tr data-detail-for="${esc(norm(s.name))}"><td colspan="6" style="background:var(--sunk)">${studentDetail(s)}</td></tr>` : ""}`).join("")}
+          ${s.key === pickedStudent ? `<tr data-detail-for="${esc(norm(s.name))}"><td colspan="7" style="background:var(--sunk)">${studentDetail(s)}</td></tr>` : ""}`).join("")}
         </tbody></table></div>
       <p class="meta" id="no-match" hidden style="margin:0">No student matches that name.</p>
     </section>
 
     ${progressPanel(students, first)}`;
+}
+
+function attCell(s) {
+  if (!s.att) return `<span class="meta">—</span>`;
+  const p = Math.round(s.att.pct * 100);
+  return `<span title="${s.att.p} of ${s.att.t} classes"${p < 75 ? ' style="color:var(--bad);font-weight:700"' : ""}>${p}%</span>`;
 }
 
 function applySearch() {
@@ -323,8 +329,9 @@ function bar(label, v, note) {
 // ---------- Excel downloads ----------
 function fileBase() { return `${F.subject} Class ${Portal.getClass()}${F.chapter ? " " + F.chapter : ""}`; }
 function csvStudents(students) {
-  const rows = [["Student", "Class", "Quizzes", "Average %", "Trend (last 3 vs 3 before)", "Status", "Last quiz"]];
-  students.forEach(s => rows.push([s.name, s.klass, s.list.length, s.avg == null ? "" : pct(s.avg), s.trend == null ? "" : Math.round(s.trend * 100), status(s.avg).text.replace(/^\S+\s/, ""), s.last ? day(s.last) : ""]));
+  const rows = [["Student", "Class", "Quizzes", "Average %", "Trend (last 3 vs 3 before)", "Attendance %", "Classes attended", "Status", "Last quiz"]];
+  students.forEach(s => rows.push([s.name, s.klass, s.list.length, s.avg == null ? "" : pct(s.avg), s.trend == null ? "" : Math.round(s.trend * 100),
+    s.att ? Math.round(s.att.pct * 100) : "", s.att ? s.att.p + " of " + s.att.t : "", status(s.avg).text.replace(/^\S+\s/, ""), s.last ? day(s.last) : ""]));
   downloadCsv(fileBase() + " students.csv", rows);
 }
 function csvProgress(students, first) {

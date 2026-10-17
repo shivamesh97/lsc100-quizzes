@@ -28,7 +28,44 @@
   // Two typed names from an older quiz that don't match anyone exactly
   RESP.push([new Date(start + 864e5).toISOString(), QUIZZES[0].id, "riya f", "11th", 7, 10, "YYNYYNYYNY", ""]);
   RESP.push([new Date(start + 2 * 864e5).toISOString(), QUIZZES[1].id, "Adi Kerkar", "11th", 4, 10, "NYNNYNYNNY", ""]);
-  const ME = { email: "demo.teacher@gmail.com", name: "Demo Teacher", picture: "", subjects: ["Physics","Chemistry","Maths","Biology","Science","Psychology","Hindi"] };
+  // Six past Biology classes for the demo register
+  const ATT = { "Biology|11": {} };
+  for (let i = 6; i >= 1; i--) {
+    const d = new Date(Date.now() - i * 3.5 * 864e5).toISOString().slice(0, 10), m = {};
+    ROSTER.forEach((s, j) => { m[s.id] = (j * 7 + i * 3) % 10 < (j === 8 ? 5 : 9) ? "P" : "A"; });
+    ATT["Biology|11"][d] = m;
+  }
+  function attTotals() { const t = {}; Object.values(ATT["Biology|11"]).forEach(m => Object.keys(m).forEach(id => { t[id] = t[id] || { p: 0, t: 0 }; t[id].t++; if (m[id] === "P") t[id].p++; })); return t; }
+  // Whole-centre sample data for the Overview page (all classes and subjects), built once
+  let OV = null;
+  function overview() {
+    if (OV) return OV;
+    let sd = 99; const r = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
+    const first = ["Aarush","Bhavya","Chirag","Diya","Esha","Farhan","Gauri","Harsh","Isha","Jay","Kavya","Laksh","Mira","Neel","Ojas","Prisha","Rhea","Siddh","Tanvi","Uday","Vani","Yash"];
+    const last = ["Naik","Prabhu","Kamat","Sawant","Gaonkar","Shet","Parab","Desai","Rodrigues","Fernandes","Kerkar"];
+    const plan = { "9": [["Maths","Science","Hindi"], 6], "10": [["Maths","Science"], 7], "12": [["Physics","Chemistry","Biology"], 5], "12m": [["Physics","Chemistry","Maths"], 4] };
+    const students = ROSTER.map((s, i) => ({ id: s.id, name: s.name, cls: "11", school: s.school, subjects: i % 3 === 0 ? ["Physics","Chemistry","Maths","Biology"] : ["Physics","Chemistry","Biology"], ab: STUDENTS[i] ? STUDENTS[i][2] : 0.6, at: 0.7 + r() * 0.3 }));
+    let n = 100;
+    Object.keys(plan).forEach(k => { const [subs, count] = plan[k]; for (let i = 0; i < count; i++) students.push({ id: "D" + (n++), name: first[(n * 7) % first.length] + " " + last[(n * 3) % last.length], cls: k.replace("m", ""), school: ["MES","KV1","SD","GHS"][n % 4], subjects: subs, ab: 0.3 + r() * 0.6, at: 0.55 + r() * 0.45 }); });
+    const quizzes = QUIZZES.map(q => ({ id: q.id, cls: q.cls, subject: q.subject, chapter: q.chapter, topic: q.topic, set: q.set }));
+    const combos = {};
+    students.forEach(s => s.subjects.forEach(sub => { combos[s.cls + "|" + sub] = true; }));
+    Object.keys(combos).forEach(c => { const [cl, sub] = c.split("|"); if (sub === "Biology" && cl === "11") return; for (let i = 0; i < 4; i++) quizzes.push({ id: "ov-" + cl + sub + i, cls: cl, subject: sub, chapter: "Ch " + (i + 1), topic: sub + " topic " + (i + 1), set: "A" }); });
+    const start = Date.now() - 56 * 864e5, responses = RESP.filter(x => x[7]).map(x => [x[0], x[1], x[4], x[5], x[7]]);
+    quizzes.forEach((q, qi) => { if (q.id.indexOf("ov-") !== 0) return; const i = Number(q.id.slice(-1));
+      students.filter(s => s.cls === q.cls && s.subjects.includes(q.subject)).forEach(s => { if (r() < 0.2) return;
+        const sc = Math.max(0, Math.min(10, Math.round((s.ab + (r() - 0.5) * 0.3) * 10)));
+        responses.push([new Date(start + (i * 14 + r() * 10) * 864e5).toISOString(), q.id, sc, 10, s.id]); }); });
+    const attendance = [];
+    Object.keys(combos).forEach(c => { const [cl, sub] = c.split("|");
+      for (let w = 0; w < 8; w++) for (const d of [1, 4]) { const dt = new Date(start + (w * 7 + d) * 864e5); if (dt > new Date()) continue;
+        const iso = dt.toISOString().slice(0, 10);
+        students.filter(s => s.cls === cl && s.subjects.includes(sub)).forEach(s => attendance.push([iso, cl, sub, s.id, r() < s.at ? "P" : "A"])); } });
+    const sent = quizzes.filter((q, i) => i % 3 === 0).map((q, i) => [new Date(Date.now() - (i % 9) * 864e5).toISOString(), q.id, ["Mrs. Fernandes","Mr. Naik","Ms. Kamat"][i % 3]]);
+    OV = { ok: true, quizzes, students: students.map(s => ({ id: s.id, name: s.name, cls: s.cls, school: s.school, subjects: s.subjects })), responses, attendance, sent, lastSync: new Date(Date.now() - 12 * 60000).toISOString() };
+    return OV;
+  }
+  const ME = { email: "demo.teacher@gmail.com", name: "Demo Teacher", picture: "", isAdmin: true, subjects: ["Physics","Chemistry","Maths","Biology","Science","Psychology","Hindi"] };
   function handle(action, p) {
     return new Promise(res => setTimeout(() => {
       if (action === "me") {
@@ -40,8 +77,21 @@
       if (action === "markSent") { SENT[p.quizId] = { at: new Date().toISOString(), by: ME.name }; return res({ ok: true, lastSent: SENT[p.quizId] }); }
       if (action === "analytics" || action === "refresh") {
         const ids = new Set(list.map(q => q.id));
-        return res({ ok: true, quizzes: list, students: p.subject === "Biology" ? ROSTER : [], responses: RESP.filter(r => ids.has(r[1])), lastSync: new Date(Date.now() - (action === "refresh" ? 0 : 6 * 60000)).toISOString(), refresh: action === "refresh" ? "done" : "" });
+        return res({ ok: true, quizzes: list, students: p.subject === "Biology" ? ROSTER : [], attendance: p.subject === "Biology" ? attTotals() : {}, responses: RESP.filter(r => ids.has(r[1])), lastSync: new Date(Date.now() - (action === "refresh" ? 0 : 6 * 60000)).toISOString(), refresh: action === "refresh" ? "done" : "" });
       }
+      if (action === "attendance" || action === "saveAttendance") {
+        const studs = p.subject === "Biology" && p.cls === "11" ? ROSTER.map(s => ({ id: s.id, name: s.name, school: s.school })).sort((a, b) => a.name.localeCompare(b.name)) : [];
+        const k = p.subject + "|" + p.cls;
+        if (action === "saveAttendance") { if (p.date > new Date().toISOString().slice(0, 10)) return res({ error: "future_date" }); ATT[k] = ATT[k] || {}; ATT[k][p.date] = Object.assign({}, p.marks); }
+        const reg = ATT[k] || {}, totals = {}, sessions = [];
+        Object.keys(reg).sort().reverse().forEach(d => {
+          let pr = 0, ab = 0;
+          Object.keys(reg[d]).forEach(id => { const t = totals[id] = totals[id] || { p: 0, t: 0 }; t.t++; if (reg[d][id] === "P") { t.p++; pr++; } else ab++; });
+          sessions.push({ date: d, present: pr, absent: ab });
+        });
+        return res({ ok: true, students: studs, marks: Object.assign({}, reg[p.date] || {}), sessions, totals, saved: action === "saveAttendance" ? Object.keys(p.marks).length : undefined });
+      }
+      if (action === "overview") return res(overview());
       if (action === "fixName") { RESP.forEach(r => { if (!r[7] && r[2].trim().toLowerCase() === String(p.typed).trim().toLowerCase()) r[7] = p.studentId; }); return res({ ok: true }); }
       res({ error: "unknown_action" });
     }, 250));

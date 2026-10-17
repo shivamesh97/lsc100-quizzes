@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Attendance – Teacher Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Atkinson+Hyperlegible:wght@400;700&family=Kalam:wght@700&family=Nunito+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="assets/app.css">
+<script src="config.js"></script>
+<script src="assets/demo.js"></script>
+<script src="assets/app.js"></script>
+</head>
+<body>
+<main id="main"><p class="loading">Loading…</p></main>
+
+<script>
+const { esc, api, me, header, prefs, toast, copy, natural } = Portal;
+const main = document.getElementById("main");
+const pad = n => String(n).padStart(2, "0");
+const isoToday = () => { const d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); };
+const niceDate = iso => { const p = iso.split("-").map(Number); return new Date(p[0], p[1] - 1, p[2]).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }); };
+const pct = (p, t) => t ? Math.round(p / t * 100) : null;
+
+let user, subject = "", date = isoToday(), reg = null, marks = {}, saved = {}, busy = false;
+
+(async function start() {
+  try { user = await me(); } catch (e) { if (e.code !== "signin") main.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
+  header("attendance", user, { classSwitch: true });
+  subject = user.subjects.includes(prefs.get("att_subject", "")) ? prefs.get("att_subject", "") : user.subjects[0];
+  main.innerHTML = `
+    <div>
+      <h1>Attendance</h1>
+      <p class="lede">Pick the date of the class, choose the subject, mark each student present or absent, then save. You can open any past date to check or correct it.</p>
+    </div>
+    <div class="panel"><div class="toolbar">
+      <div class="field"><label class="label" for="a-date">1 · Date of the class</label><input class="input" id="a-date" type="date" value="${date}" max="${isoToday()}"></div>
+      <div class="field"><label class="label" for="a-subject">2 · Subject</label><select class="input" id="a-subject">${user.subjects.map(s => `<option ${s === subject ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
+      <div class="field"><span class="label">3 · Class</span><span class="meta" style="padding-top:8px">Use the class switch at the top</span></div>
+    </div></div>
+    <div id="body"><p class="loading">Loading the register…</p></div>`;
+  document.getElementById("a-subject").onchange = e => { if (!leaveOk()) { e.target.value = subject; return; } subject = e.target.value; prefs.set("att_subject", subject); load(); };
+  document.getElementById("a-date").onchange = e => { if (!e.target.value) return; if (!leaveOk()) { e.target.value = date; return; } date = e.target.value; load(); };
+  document.addEventListener("portal:class", () => load());
+  window.addEventListener("beforeunload", e => { if (dirty()) { e.preventDefault(); e.returnValue = ""; } });
+  load();
+})();
+
+function dirty() { return Object.keys(marks).some(k => marks[k] !== saved[k]); }
+function leaveOk() { return !dirty() || window.confirm("You have unsaved attendance. Leave without saving?"); }
+
+async function load() {
+  const body = document.getElementById("body");
+  body.innerHTML = `<p class="loading">Loading the register…</p>`;
+  try { reg = await api("attendance", { subject, cls: Portal.getClass(), date }); }
+  catch (e) { if (e.code !== "signin") body.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
+  saved = Object.assign({}, reg.marks); marks = Object.assign({}, reg.marks);
+  render();
+}
+
+function render() {
+  const body = document.getElementById("body");
+  const cls = Portal.getClass();
+  const list = reg.students;
+  if (!list.length) {
+    body.innerHTML = `<div class="panel empty"><strong>No Class ${esc(cls)} students take ${esc(subject)}</strong><span>Add them in the Students tab of the database sheet, with ${esc(subject)} in their Subjects. Or switch class at the top.</span></div>`;
+    return;
+  }
+  const counts = { P: 0, A: 0 };
+  list.forEach(s => { if (marks[s.id]) counts[marks[s.id]]++; });
+  const unmarked = list.length - counts.P - counts.A;
+  const already = Object.keys(saved).length > 0;
+  const dupes = {};
+  list.forEach(s => { dupes[s.name] = (dupes[s.name] || 0) + 1; });
+
+  body.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:20px">
+    <section class="panel">
+      <div class="panel-head">
+        <div><h2>${esc(subject)} · Class ${esc(cls)} · ${esc(niceDate(date))}</h2>
+          <span class="meta">${already ? "Saved earlier. Changes update the register." : "Not saved yet."}</span></div>
+        <div class="tools">
+          <button class="btn sm ghost" type="button" id="all-p">Mark all present</button>
+        </div>
+      </div>
+      <div class="att-counts" role="status">
+        <span class="pill good">✓ ${counts.P} present</span>
+        <span class="pill bad">✗ ${counts.A} absent</span>
+        ${unmarked ? `<span class="pill none">${unmarked} not marked</span>` : ""}
+      </div>
+      <div class="att-list">${list.map(s => {
+        const t = reg.totals[s.id], p = t ? pct(t.p, t.t) : null;
+        return `<div class="att-row" data-row="${esc(s.id)}">
+          <div style="min-width:0"><strong>${esc(s.name)}</strong>${dupes[s.name] > 1 ? ` <span class="meta">${esc(s.id)}</span>` : ""}
+            <div class="meta">${s.school ? esc(s.school) + " · " : ""}${p == null ? "No attendance yet" : `${p}% attended (${t.p} of ${t.t})`}</div></div>
+          <div class="att-toggle" role="group" aria-label="Attendance for ${esc(s.name)}">
+            <button type="button" class="p" data-id="${esc(s.id)}" data-v="P" aria-pressed="${marks[s.id] === "P"}">Present</button>
+            <button type="button" class="a" data-id="${esc(s.id)}" data-v="A" aria-pressed="${marks[s.id] === "A"}">Absent</button>
+          </div></div>`;
+      }).join("")}</div>
+      <div class="att-save">
+        <button class="btn accent" type="button" id="save" ${unmarked || !dirty() ? "disabled" : ""}>${already ? "Save changes" : "Save attendance"}</button>
+        <span class="meta" id="save-note">${unmarked ? `Mark all ${list.length} students to save.` : dirty() ? "" : "All saved."}</span>
+      </div>
+      ${counts.A && !dirty() ? absentBox(list) : ""}
+    </section>
+
+    <div class="grid2">
+      <section class="panel">
+        <div class="panel-head"><h2>Recent classes</h2><span class="meta">Select one to open it</span></div>
+        ${reg.sessions.length ? `<div class="scroll"><table>
+          <thead><tr><th>Date</th><th class="r">Present</th><th class="r">Absent</th><th class="r">Attendance</th></tr></thead>
+          <tbody>${reg.sessions.slice(0, 12).map(x => `<tr class="click" tabindex="0" data-date="${esc(x.date)}" aria-selected="${x.date === date}">
+            <td>${esc(niceDate(x.date))}</td><td class="r num">${x.present}</td><td class="r num">${x.absent}</td>
+            <td class="r num">${pct(x.present, x.present + x.absent)}%<span class="mini" aria-hidden="true"><i style="width:${pct(x.present, x.present + x.absent)}%"></i></span></td></tr>`).join("")}
+          </tbody></table></div>` : `<p class="meta" style="margin:0">No classes marked yet for ${esc(subject)}, Class ${esc(cls)}.</p>`}
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>By student</h2><span class="meta">Below 75% is flagged</span></div>
+        <div class="scroll"><table>
+          <thead><tr><th>Student</th><th class="r">Attended</th><th class="r">%</th><th></th></tr></thead>
+          <tbody>${list.slice().sort((a, b) => (pctOf(a) ?? 2) - (pctOf(b) ?? 2) || natural(a.name, b.name)).map(s => {
+            const t = reg.totals[s.id], p = pctOf(s);
+            return `<tr><td><strong>${esc(s.name)}</strong></td><td class="r num">${t ? `${t.p} of ${t.t}` : "—"}</td><td class="r num">${p == null ? "—" : p + "%"}</td>
+              <td>${p == null ? "" : p < 75 ? `<span class="pill bad">⚠ Low</span>` : `<span class="pill good">✓ OK</span>`}</td></tr>`;
+          }).join("")}</tbody></table></div>
+      </section>
+    </div>
+    </div>`;
+
+  body.querySelectorAll(".att-toggle button").forEach(b => b.onclick = () => {
+    marks[b.dataset.id] = b.dataset.v;
+    const row = b.closest(".att-row");
+    row.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    refreshCounts();
+  });
+  document.getElementById("all-p").onclick = () => { list.forEach(s => { if (!marks[s.id]) marks[s.id] = "P"; }); render(); };
+  document.getElementById("save").onclick = save;
+  body.querySelectorAll("[data-date]").forEach(tr => {
+    const go = () => { if (tr.dataset.date === date || !leaveOk()) return; date = tr.dataset.date; document.getElementById("a-date").value = date; load(); };
+    tr.onclick = go; tr.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } };
+  });
+  const cp = document.getElementById("copy-absent");
+  if (cp) {
+    cp.onclick = async () => toast(await copy(absentText(list)) ? "Absent list copied." : "Couldn't copy.");
+    document.getElementById("wa-absent").onclick = e => { e.currentTarget.href = "https://wa.me/?text=" + encodeURIComponent(absentText(list)); };
+  }
+}
+
+function pctOf(s) { const t = reg.totals[s.id]; return t ? pct(t.p, t.t) : null; }
+
+// Update counts and the Save button without re-drawing the list
+function refreshCounts() {
+  const list = reg.students, counts = { P: 0, A: 0 };
+  list.forEach(s => { if (marks[s.id]) counts[marks[s.id]]++; });
+  const unmarked = list.length - counts.P - counts.A;
+  document.querySelector(".att-counts").innerHTML = `<span class="pill good">✓ ${counts.P} present</span><span class="pill bad">✗ ${counts.A} absent</span>${unmarked ? `<span class="pill none">${unmarked} not marked</span>` : ""}`;
+  const btn = document.getElementById("save");
+  btn.disabled = unmarked > 0 || !dirty();
+  document.getElementById("save-note").textContent = unmarked ? `Mark all ${list.length} students to save.` : dirty() ? "" : "All saved.";
+}
+
+async function save() {
+  if (busy) return;
+  busy = true;
+  const btn = document.getElementById("save");
+  btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    reg = await api("saveAttendance", { subject, cls: Portal.getClass(), date, marks });
+    saved = Object.assign({}, reg.marks); marks = Object.assign({}, reg.marks);
+    toast("Attendance saved for " + niceDate(date) + ".");
+    render();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = "Save attendance";
+    toast(e.code === "future_date" ? "You can't mark attendance for a future date." : e.message);
+  } finally { busy = false; }
+}
+
+function absentText(list) {
+  const names = list.filter(s => marks[s.id] === "A").map(s => s.name);
+  return `*Absent today* – ${subject}, Class ${Portal.getClass()}, ${niceDate(date)}\n${names.map((n, i) => `${i + 1}. ${n}`).join("\n")}`;
+}
+function absentBox(list) {
+  const names = list.filter(s => marks[s.id] === "A").map(s => s.name);
+  return `<div class="notice" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between">
+    <span><strong>Absent:</strong> ${names.map(esc).join(", ")}</span>
+    <span class="tools"><button class="btn sm ghost" type="button" id="copy-absent">Copy list</button>
+    <a class="btn sm ghost" id="wa-absent" href="#" target="_blank" rel="noopener">WhatsApp</a></span></div>`;
+}
+</script>
+</body>
+</html>

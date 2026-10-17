@@ -61,6 +61,8 @@
       s.retakes = s.list.reduce((a, r) => a + (attempts[r.key + "|" + r.q.id] - 1), 0);
       s.trend = trendOf(s.list);
       s.last = has ? s.list[s.list.length - 1].t : null;
+      const a = (data.attendance || {})[s.id || s.key];
+      s.att = a && a.t ? { p: a.p, t: a.t, pct: a.p / a.t } : null;
       return s;
     });
     return { quizById, first, attempts, students, unmatched, roster, useRoster };

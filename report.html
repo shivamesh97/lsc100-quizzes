@@ -70,6 +70,7 @@ function render() {
         <div class="fact"><span class="label">Average score</span><b>${pct(s.avg)}%</b></div>
         <div class="fact"><span class="label">Quizzes taken</span><b>${list.length}</b></div>
         <div class="fact"><span class="label">Trend</span><b style="font-size:18px">${esc(trendText(s.trend))}</b></div>
+        <div class="fact"><span class="label">Attendance</span><b>${s.att ? Math.round(s.att.pct * 100) + "%" : "—"}</b>${s.att ? `<span class="meta">${s.att.p} of ${s.att.t} classes</span>` : ""}</div>
         <div class="fact"><span class="label">Status</span><div style="margin-top:6px">${statusPill(s.avg)}</div></div>
       </div>
 
@@ -131,6 +132,7 @@ function summary(strong, weak) {
   m += `Student: ${s.name} (Class ${cls})\nSubject: ${subject}\n`;
   m += `Quizzes taken: ${s.list.length} (${day(s.list[0].t)} – ${day(s.list[s.list.length - 1].t)})\n`;
   m += `Average score: ${pct(s.avg)}%\nTrend: ${trendText(s.trend)}\n`;
+  if (s.att) m += `Attendance: ${Math.round(s.att.pct * 100)}% (${s.att.p} of ${s.att.t} classes)\n`;
   if (strong.length) m += `Doing well in: ${strong.map(t => topicName(t.k)).join(", ")}\n`;
   if (weak.length) m += `Needs more practice: ${weak.map(t => topicName(t.k)).join(", ")}\n`;
   if (note) m += `\nTeacher's note: ${note}\n`;

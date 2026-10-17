@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Overview – Teacher Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Atkinson+Hyperlegible:wght@400;700&family=Kalam:wght@700&family=Nunito+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="assets/app.css">
+<script src="config.js"></script>
+<script src="assets/demo.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/stats.js"></script>
+</head>
+<body>
+<main id="main"><p class="loading">Loading…</p></main>
+
+<script>
+const { esc, api, me, header, natural, prefs, toast, downloadCsv, CLASSES } = Portal;
+const { pct, day, periodKey, periodLabel, norm } = Stats;
+const main = document.getElementById("main");
+const PERIODS = { "4w": { label: "Last 4 weeks", days: 28 }, "3m": { label: "Last 3 months", days: 91 }, "all": { label: "All time", days: 0 } };
+let data = null, cls = prefs.get("ov_cls", "all"), period = prefs.get("ov_period", "4w"), search = "";
+
+(async function start() {
+  let user;
+  try { user = await me(); } catch (e) { if (e.code !== "signin") main.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
+  header("overview", user);
+  if (!user.isAdmin) {
+    main.innerHTML = `<div class="panel empty"><strong>The Overview is for admins</strong><span>It's available to teachers whose Subjects are set to "All" in the Teachers sheet.</span><a class="btn ghost" href="index.html">Back to subjects</a></div>`;
+    return;
+  }
+  main.innerHTML = `
+    <div class="panel-head">
+      <div><h1>Overview</h1><p class="lede">All subjects and classes in one place: quiz scores, attendance, students who need attention and what teachers have done this week.</p></div>
+      <span class="meta" id="sync"></span>
+    </div>
+    <div class="panel"><div class="toolbar">
+      <div class="field"><span class="label">Class</span><div class="chips" id="f-cls"></div></div>
+      <div class="field"><span class="label">Period</span><div class="chips" id="f-period"></div></div>
+    </div></div>
+    <div id="body"><p class="loading">Loading everything…</p></div>`;
+  try { data = await api("overview"); }
+  catch (e) { if (e.code !== "signin") document.getElementById("body").innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
+  if (data.lastSync) document.getElementById("sync").textContent = "Quiz scores updated " + new Date(data.lastSync).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+  render();
+})();
+
+function chips() {
+  const c = document.getElementById("f-cls");
+  c.innerHTML = [["all", "All classes"]].concat(CLASSES.map(x => [x, "Class " + x])).map(([v, l]) => `<button class="chip" data-cls="${esc(v)}" aria-pressed="${v === cls}">${esc(l)}</button>`).join("");
+  c.querySelectorAll("button").forEach(b => b.onclick = () => { cls = b.dataset.cls; prefs.set("ov_cls", cls); render(); });
+  const p = document.getElementById("f-period");
+  p.innerHTML = Object.keys(PERIODS).map(k => `<button class="chip" data-p="${k}" aria-pressed="${k === period}">${PERIODS[k].label}</button>`).join("");
+  p.querySelectorAll("button").forEach(b => b.onclick = () => { period = b.dataset.p; prefs.set("ov_period", period); render(); });
+}
+
+const isoDay = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+const avgOf = l => l.length ? l.reduce((a, r) => a + r.score / r.out, 0) / l.length : null;
+
+function compute() {
+  const since = PERIODS[period].days ? new Date(Date.now() - PERIODS[period].days * 864e5) : null;
+  const sinceIso = since ? isoDay(since) : "";
+  const students = data.students.filter(s => cls === "all" || s.cls === cls);
+  const byId = {}; students.forEach(s => { byId[s.id] = Object.assign({}, s, { quiz: [], att: { p: 0, t: 0 }, subj: {} }); });
+  const quizById = {}; data.quizzes.forEach(q => { quizById[q.id] = q; });
+
+  // first attempt per student per quiz, inside the period
+  const seen = new Set();
+  const resp = data.responses.map(r => ({ t: new Date(r[0]), q: quizById[r[1]], score: r[2], out: r[3], sid: r[4] }))
+    .filter(r => r.q && r.out > 0 && byId[r.sid]).sort((a, b) => a.t - b.t)
+    .filter(r => { const k = r.sid + "|" + r.q.id; if (seen.has(k)) return false; seen.add(k); return true; })
+    .filter(r => !since || r.t >= since);
+  resp.forEach(r => {
+    const s = byId[r.sid]; s.quiz.push(r);
+    const x = s.subj[r.q.subject] = s.subj[r.q.subject] || { quiz: [], p: 0, t: 0 }; x.quiz.push(r);
+  });
+  const att = data.attendance.map(a => ({ date: a[0], cls: a[1], subject: a[2], sid: a[3], st: a[4] }))
+    .filter(a => byId[a.sid] && (!sinceIso || a.date >= sinceIso));
+  att.forEach(a => {
+    const s = byId[a.sid]; s.att.t++; if (a.st === "P") s.att.p++;
+    const x = s.subj[a.subject] = s.subj[a.subject] || { quiz: [], p: 0, t: 0 }; x.t++; if (a.st === "P") x.p++;
+  });
+  const list = Object.values(byId).map(s => {
+    s.avg = avgOf(s.quiz);
+    s.attPct = s.att.t ? s.att.p / s.att.t : null;
+    const subs = Object.keys(s.subj).filter(k => s.subj[k].quiz.length).map(k => ({ k, avg: avgOf(s.subj[k].quiz) })).sort((a, b) => a.avg - b.avg);
+    s.weakest = subs[0] || null;
+    s.reasons = [];
+    if (s.avg != null && s.avg < 0.4) s.reasons.push("Low scores");
+    if (s.attPct != null && s.attPct < 0.75) s.reasons.push("Low attendance");
+    if (!s.quiz.length) s.reasons.push("No quizzes");
+    return s;
+  });
+  return { list, resp, att, since };
+}
+
+function render() {
+  chips();
+  const body = document.getElementById("body");
+  const { list, resp, att } = compute();
+  if (!list.length) { body.innerHTML = `<div class="panel empty"><strong>No students${cls === "all" ? "" : " in Class " + esc(cls)}</strong><span>Add students in the Students tab of the database sheet.</span></div>`; return; }
+
+  const avgAll = avgOf(resp);
+  const attP = att.filter(a => a.st === "P").length, attRate = att.length ? attP / att.length : null;
+  const risk = list.filter(s => s.reasons.some(r => r !== "No quizzes")).sort((a, b) => (a.avg ?? 1) - (b.avg ?? 1));
+  const idle = list.filter(s => !s.quiz.length).length;
+
+  body.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:20px">
+    <div class="tiles">
+      <div class="tile"><span class="label">Students</span><b>${list.length}</b><span class="meta">${idle} took no quiz ${period === "all" ? "yet" : "in this period"}</span></div>
+      <div class="tile"><span class="label">Average quiz score</span><b>${avgAll == null ? "—" : pct(avgAll) + "%"}</b><span class="meta">${resp.length} submissions</span></div>
+      <div class="tile"><span class="label">Attendance</span><b>${attRate == null ? "—" : pct(attRate) + "%"}</b><span class="meta">${new Set(att.map(a => a.date + a.cls + a.subject)).size} classes marked</span></div>
+      <div class="tile"><span class="label">Need attention</span><b>${risk.length}</b><span class="meta">scores below 40% or attendance below 75%</span></div>
+    </div>
+
+    ${gridPanel(list)}
+    ${trendPanel(resp, att)}
+
+    <section class="panel">
+      <div class="panel-head"><h2>Students who need attention</h2><span class="meta">Average below 40% or attendance below 75%</span></div>
+      ${risk.length ? `<div class="scroll"><table>
+        <thead><tr><th>Student</th><th class="r">Quiz average</th><th class="r">Attendance</th><th>Weakest subject</th><th>Why</th></tr></thead>
+        <tbody>${risk.map(s => `<tr><td><strong>${esc(s.name)}</strong><div class="meta">Class ${esc(s.cls)}${s.school ? " · " + esc(s.school) : ""}</div></td>
+          <td class="r num">${s.avg == null ? "—" : pct(s.avg) + "%"}</td><td class="r num">${s.attPct == null ? "—" : pct(s.attPct) + "%"}</td>
+          <td>${s.weakest ? `<a href="report.html?subject=${encodeURIComponent(s.weakest.k)}&cls=${encodeURIComponent(s.cls)}&student=${encodeURIComponent(s.id)}">${esc(s.weakest.k)} · ${pct(s.weakest.avg)}%</a>` : "—"}</td>
+          <td>${s.reasons.filter(r => r !== "No quizzes").map(r => `<span class="pill bad">⚠ ${esc(r)}</span>`).join(" ")}</td></tr>`).join("")}</tbody></table></div>`
+        : `<p class="meta" style="margin:0">Nobody is below the thresholds. Good.</p>`}
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>All students</h2>
+        <div class="tools">
+          <input class="input searchbox" id="search" type="search" placeholder="Search by name" aria-label="Search students by name">
+          <button class="btn sm ghost" id="csv" type="button">Download Excel</button>
+        </div>
+      </div>
+      <div class="scroll"><table>
+        <thead><tr><th>Student</th><th>Subjects</th><th class="r">Quizzes</th><th class="r">Average</th><th class="r">Attendance</th><th>Weakest subject</th></tr></thead>
+        <tbody>${list.slice().sort((a, b) => natural(a.cls, b.cls) || natural(a.name, b.name)).map(s => `<tr data-name="${esc(norm(s.name))}">
+          <td><strong>${esc(s.name)}</strong><div class="meta">Class ${esc(s.cls)}${s.school ? " · " + esc(s.school) : ""}</div></td>
+          <td class="meta" style="white-space:normal">${esc(s.subjects.join(", "))}</td>
+          <td class="r num">${s.quiz.length}</td>
+          <td class="r num">${s.avg == null ? "—" : `<span${s.avg < 0.4 ? ' style="color:var(--bad);font-weight:700"' : ""}>${pct(s.avg)}%</span>`}</td>
+          <td class="r num">${s.attPct == null ? "—" : `<span${s.attPct < 0.75 ? ' style="color:var(--bad);font-weight:700"' : ""}>${pct(s.attPct)}%</span>`}</td>
+          <td>${s.weakest ? `${esc(s.weakest.k)} <span class="meta">${pct(s.weakest.avg)}%</span>` : `<span class="meta">—</span>`}</td></tr>`).join("")}</tbody>
+      </table></div>
+      <p class="meta" id="no-match" hidden style="margin:0">No student matches that name.</p>
+    </section>
+
+    ${activityPanel()}
+    </div>`;
+
+  const sb = document.getElementById("search");
+  sb.value = search;
+  sb.oninput = () => { search = sb.value; applySearch(); };
+  applySearch();
+  document.getElementById("csv").onclick = () => {
+    const rows = [["Student", "Class", "School", "Subjects", "Quizzes", "Average %", "Attendance %", "Classes attended", "Weakest subject", "Weakest %"]];
+    list.slice().sort((a, b) => natural(a.cls, b.cls) || natural(a.name, b.name)).forEach(s => rows.push([s.name, s.cls, s.school, s.subjects.join(", "), s.quiz.length,
+      s.avg == null ? "" : pct(s.avg), s.attPct == null ? "" : pct(s.attPct), s.att.t ? s.att.p + " of " + s.att.t : "", s.weakest ? s.weakest.k : "", s.weakest ? pct(s.weakest.avg) : ""]));
+    downloadCsv(`Overview ${cls === "all" ? "all classes" : "Class " + cls} ${PERIODS[period].label}.csv`, rows);
+  };
+}
+
+function applySearch() {
+  const q = norm(search); let shown = 0;
+  document.querySelectorAll("tr[data-name]").forEach(tr => { const hit = !q || tr.dataset.name.includes(q); tr.hidden = !hit; if (hit) shown++; });
+  document.getElementById("no-match").hidden = shown > 0;
+}
+
+// Subject × class: average quiz score (shade), attendance and number of students
+function gridPanel(list) {
+  const classes = cls === "all" ? CLASSES : [cls];
+  const subjects = [...new Set(list.flatMap(s => s.subjects))].sort(natural);
+  const cell = (subject, c) => {
+    const st = list.filter(s => s.cls === c && s.subjects.includes(subject));
+    if (!st.length) return `<td class="r meta">–</td>`;
+    const q = st.flatMap(s => (s.subj[subject] || { quiz: [] }).quiz);
+    const p = st.reduce((a, s) => a + ((s.subj[subject] || {}).p || 0), 0), t = st.reduce((a, s) => a + ((s.subj[subject] || {}).t || 0), 0);
+    const avg = avgOf(q);
+    return `<td class="r ${avg == null ? "" : "heat"}" ${avg == null ? "" : `style="--h:${Math.round(avg * 45)}%"`} title="${esc(subject)}, Class ${esc(c)}: ${st.length} students">
+      <b class="num">${avg == null ? "—" : pct(avg) + "%"}</b><div class="meta">${t ? pct(p / t) + "% att." : "no att."} · ${st.length} st.</div></td>`;
+  };
+  return `<section class="panel">
+    <div class="panel-head"><div><h2>Subjects by class</h2><span class="meta">Quiz average (darker is higher), attendance and number of students</span></div></div>
+    <div class="scroll"><table class="grid-sc">
+      <thead><tr><th>Subject</th>${classes.map(c => `<th class="r">Class ${esc(c)}</th>`).join("")}</tr></thead>
+      <tbody>${subjects.map(sub => `<tr><td><strong>${esc(sub)}</strong></td>${classes.map(c => cell(sub, c)).join("")}</tr>`).join("")}</tbody>
+    </table></div></section>`;
+}
+
+// Weekly quiz average and attendance, last 10 weeks with data (both are percentages, so they share one axis)
+function trendPanel(resp, att) {
+  const wk = {};
+  resp.forEach(r => { const k = periodKey(r.t, "week"); (wk[k] = wk[k] || { q: [], p: 0, t: 0 }).q.push(r); });
+  att.forEach(a => { const p = a.date.split("-").map(Number); const k = periodKey(new Date(p[0], p[1] - 1, p[2]), "week"); const w = wk[k] = wk[k] || { q: [], p: 0, t: 0 }; w.t++; if (a.st === "P") w.p++; });
+  const keys = Object.keys(wk).sort().slice(-10);
+  if (keys.length < 2) return `<section class="panel"><div class="panel-head"><h2>Week by week</h2></div><p class="meta" style="margin:0">The trend appears once there are at least two weeks of quizzes or attendance.</p></section>`;
+  const series = [
+    { name: "Quiz average", cls: "s1", vals: keys.map(k => avgOf(wk[k].q)) },
+    { name: "Attendance", cls: "s2", vals: keys.map(k => wk[k].t ? wk[k].p / wk[k].t : null) }
+  ];
+  const W = 760, H = 240, L = 44, R = 150, T = 14, B = 34;
+  const x = i => L + i * (W - L - R) / (keys.length - 1), y = v => T + (1 - v) * (H - T - B);
+  const grid = [0, 0.25, 0.5, 0.75, 1].map(v => `<line class="g" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${v * 100}%</text>`).join("");
+  const xl = keys.map((k, i) => (i % Math.ceil(keys.length / 6) === 0 || i === keys.length - 1) ? `<text x="${x(i)}" y="${H - 10}" text-anchor="middle">${esc(periodLabel(k, "week").replace("Wk of ", ""))}</text>` : "").join("");
+  const lines = series.map(s => {
+    const pts = s.vals.map((v, i) => v == null ? null : [x(i), y(v), v, i]).filter(Boolean);
+    const last = pts[pts.length - 1];
+    return `<polyline class="${s.cls}" points="${pts.map(p => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ")}"/>
+      ${pts.map(p => `<circle class="${s.cls}" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="4"><title>${esc(s.name)}, week of ${esc(periodLabel(keys[p[3]], "week").replace("Wk of ", ""))}: ${pct(p[2])}%</title></circle>`).join("")}
+      ${last ? `<text class="lbl" x="${last[0] + 10}" y="${last[1] + 4}">${esc(s.name)} ${pct(last[2])}%</text>` : ""}`;
+  }).join("");
+  return `<section class="panel">
+    <div class="panel-head"><div><h2>Week by week</h2><span class="meta">Average quiz score and attendance rate for each week</span></div>
+      <div class="legend"><span><i class="k-s1"></i>Quiz average</span><span><i class="k-s2"></i>Attendance</span></div></div>
+    <div class="scroll"><svg class="trend" viewBox="0 0 ${W} ${H}" role="img" aria-label="Weekly quiz average and attendance">${grid}${xl}${lines}</svg></div>
+  </section>`;
+}
+
+// What teachers did in the last 7 days, per subject
+function activityPanel() {
+  const since = Date.now() - 7 * 864e5, sinceIso = isoDay(new Date(since));
+  const quizSubj = {}; data.quizzes.forEach(q => { quizSubj[q.id] = q; });
+  const inCls = q => q && (cls === "all" || q.cls === cls);
+  const subjects = [...new Set(data.quizzes.map(q => q.subject).concat(data.students.flatMap(s => s.subjects)))].sort(natural);
+  const rows = subjects.map(sub => {
+    const sent = data.sent.filter(s => new Date(s[0]) >= since && inCls(quizSubj[s[1]]) && quizSubj[s[1]].subject === sub);
+    const regs = new Set(data.attendance.filter(a => a[2] === sub && a[0] >= sinceIso && (cls === "all" || a[1] === cls)).map(a => a[0] + "|" + a[1]));
+    const subs = data.responses.filter(r => new Date(r[0]) >= since && inCls(quizSubj[r[1]]) && quizSubj[r[1]].subject === sub).length;
+    const who = [...new Set(sent.map(s => s[2]).filter(Boolean))];
+    return { sub, sent: sent.length, regs: regs.size, subs, who };
+  }).filter(r => data.students.some(s => (cls === "all" || s.cls === cls) && s.subjects.includes(r.sub)) || r.sent || r.subs);
+  return `<section class="panel">
+    <div class="panel-head"><h2>Last 7 days</h2><span class="meta">Quizzes sent, attendance registers marked and quiz submissions, by subject</span></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Subject</th><th class="r">Quizzes sent</th><th class="r">Registers marked</th><th class="r">Submissions</th><th>Sent by</th></tr></thead>
+      <tbody>${rows.map(r => `<tr><td><strong>${esc(r.sub)}</strong></td>
+        <td class="r num">${r.sent || `<span class="pill warn">0</span>`}</td><td class="r num">${r.regs || `<span class="pill warn">0</span>`}</td>
+        <td class="r num">${r.subs}</td><td class="meta">${esc(r.who.join(", ")) || "—"}</td></tr>`).join("")}</tbody>
+    </table></div>
+  </section>`;
+}
+</script>
+</body>
+</html>
