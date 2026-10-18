@@ -79,25 +79,29 @@ async function showHome() {
   main.innerHTML = `
     <div>
       <h1>${first ? "Hello, " + esc(first) : "Welcome"}</h1>
-      <p class="lede">Choose a subject to find quizzes by chapter and topic, then copy the link or send it on WhatsApp.</p>
+      <p class="lede">Check results and attendance, or choose a subject to find quizzes and send them on WhatsApp.</p>
     </div>
+    <h2>Tools</h2>
+    <div class="cards">
+      <a class="card alt" href="analytics.html">
+        <span class="label">Results</span><b>Analytics</b>
+        <span class="meta">Scores by student, quiz and question</span>
+        <span class="go">Open analytics →</span></a>
+      <a class="card alt" href="attendance.html">
+        <span class="label">Register</span><b>Attendance</b>
+        <span class="meta">Mark who came to class</span>
+        <span class="go">Take attendance →</span></a>
+      ${user.isAdmin ? `<a class="card alt" href="overview.html">
+        <span class="label">Admin</span><b>Overview</b>
+        <span class="meta">All subjects and classes in one place</span>
+        <span class="go">Open overview →</span></a>` : ""}
+    </div>
+    <h2>Quizzes by subject</h2>
     <div class="cards">
       ${user.subjects.map(s => `<a class="card" href="quizzes.html?subject=${encodeURIComponent(s)}">
         <span class="label">Subject</span><b>${esc(s)}</b>
         <span class="meta">${counts[s] || 0} quiz${counts[s] === 1 ? "" : "zes"}</span>
         <span class="go">Open quizzes →</span></a>`).join("")}
-      ${user.isAdmin ? `<a class="card alt" href="overview.html">
-        <span class="label">Admin</span><b>Overview</b>
-        <span class="meta">All subjects and classes in one place</span>
-        <span class="go">Open overview →</span></a>` : ""}
-      <a class="card alt" href="attendance.html">
-        <span class="label">Register</span><b>Attendance</b>
-        <span class="meta">Mark who came to class</span>
-        <span class="go">Take attendance →</span></a>
-      <a class="card alt" href="analytics.html">
-        <span class="label">Results</span><b>Analytics</b>
-        <span class="meta">Scores by student, quiz and question</span>
-        <span class="go">Open analytics →</span></a>
     </div>`;
 }
 
