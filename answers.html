@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Answer key – Teacher Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Atkinson+Hyperlegible:wght@400;700&family=Kalam:wght@700&family=Nunito+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="assets/app.css">
+<script src="config.js"></script>
+<script src="assets/demo.js"></script>
+<script src="assets/app.js"></script>
+<style>
+/* Answer key: one column of question cards; text can be enlarged for projecting in class */
+.ak{display:flex;flex-direction:column;gap:14px;font-size:var(--ak-size,16px)}
+.ak-q{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;display:flex;flex-direction:column;gap:12px}
+.ak-num{font-family:var(--mono);font-size:.8em;color:var(--muted);letter-spacing:.04em}
+.ak-text{font-weight:700;font-size:1.08em;line-height:1.4;margin:0}
+.ak-opts{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.ak-opt{display:flex;gap:12px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.ak-letter{flex:none;width:1.8em;height:1.8em;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;background:var(--sunk);color:var(--ink);font-size:.9em}
+.ak.revealed .ak-opt.right,.ak-q.revealed .ak-opt.right{border-color:var(--good);background:var(--good-soft)}
+.ak.revealed .ak-opt.right .ak-letter,.ak-q.revealed .ak-opt.right .ak-letter{background:var(--good);color:var(--surface)}
+.ak-tick{display:none;margin-left:auto;font-weight:700;color:var(--good);white-space:nowrap;font-size:.85em}
+.ak.revealed .ak-opt.right .ak-tick,.ak-q.revealed .ak-opt.right .ak-tick{display:inline}
+.ak-explain{display:none;border-left:3px solid var(--accent);background:var(--sunk);padding:10px 14px;border-radius:0 10px 10px 0;margin:0}
+.ak.revealed .ak-explain,.ak-q.revealed .ak-explain{display:block}
+.ak-reveal{align-self:flex-start}
+.ak.revealed .ak-reveal{display:none}
+.ak-q.revealed .ak-reveal{display:none}
+.ak-none{color:var(--warn);font-weight:700}
+.panel.ak-bar{display:flex;flex-direction:row;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-start;text-align:left;padding:12px 14px}
+.ak-note{margin:0;font-size:14px;color:var(--muted);max-width:70ch}
+@media print{
+  .ak-bar,.ak-reveal,.top,.bottomnav,.no-print{display:none!important}
+  .ak .ak-opt.right{border-color:#000;background:#eee}
+  .ak .ak-tick,.ak .ak-explain{display:block!important}
+  .ak-q{break-inside:avoid;border-color:#999}
+}
+</style>
+</head>
+<body>
+<main id="main"><p class="loading">Loading…</p></main>
+
+<script>
+const { esc, api, me, header, toast, prefs } = Portal;
+const main = document.getElementById("main");
+const params = new URLSearchParams(location.search);
+const subject = params.get("subject") || "";
+const quizId = params.get("quiz") || "";
+const L = "ABCDEFGH";
+
+(async function start() {
+  let user;
+  try { user = await me(); } catch (e) { if (e.code !== "signin") main.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
+  header("subjects", user);
+  const back = `quizzes.html?subject=${encodeURIComponent(subject)}`;
+  if (!subject || !quizId) {
+    main.innerHTML = `<div class="empty"><strong>Choose a quiz first</strong><a class="btn ghost" href="index.html">Back to subjects</a></div>`;
+    return;
+  }
+  main.innerHTML = `<p class="loading">Loading the answer key…</p>`;
+  let data;
+  try { data = await api("answerKey", { subject, quizId }); }
+  catch (e) {
+    if (e.code !== "signin") main.innerHTML = `<div><a href="${back}" class="meta">← ${esc(subject)} quizzes</a></div><div class="notice bad">${esc(e.message)}</div>`;
+    return;
+  }
+  const q = data.quiz, qs = data.questions || [];
+  document.title = "Answers: " + q.topic + " Set " + q.set + " – Teacher Portal";
+  const mode = prefs.get("akMode", "all"); // "all" = show every answer; "one" = reveal one at a time
+  const size = Number(prefs.get("akSize", 16)) || 16;
+
+  main.innerHTML = `
+    <div>
+      <a href="${back}" class="meta no-print">← ${esc(subject)} quizzes</a>
+      <h1>Answer key</h1>
+      <p class="lede">${esc(q.subject)} · Class ${esc(q.cls)} · ${esc(q.chapter)}<br><strong>${esc(q.topic)} — Set ${esc(q.set)}</strong></p>
+    </div>
+    <div class="panel ak-bar">
+      <button class="btn sm ${mode === "all" ? "" : "ghost"}" id="mAll" aria-pressed="${mode === "all"}">Show all answers</button>
+      <button class="btn sm ${mode === "one" ? "" : "ghost"}" id="mOne" aria-pressed="${mode === "one"}">Reveal one at a time</button>
+      <span style="flex:1"></span>
+      <button class="btn sm ghost" id="smaller" aria-label="Smaller text">A−</button>
+      <button class="btn sm ghost" id="bigger" aria-label="Larger text">A+</button>
+      <button class="btn sm ghost" id="print">Print</button>
+    </div>
+    <p class="ak-note no-print">Question order is shuffled for each student, so refer to questions by their wording, not their number. Please don't share this page with students before everyone has submitted.</p>
+    <div class="ak ${mode === "all" ? "revealed" : ""}" id="ak" style="--ak-size:${size}px">
+      ${qs.length ? qs.map((x, i) => `
+        <article class="ak-q">
+          <span class="ak-num">QUESTION ${i + 1} OF ${qs.length}</span>
+          <p class="ak-text">${esc(x.q)}</p>
+          <ol class="ak-opts">${x.options.map((o, j) => `
+            <li class="ak-opt ${j === x.answer ? "right" : ""}"><span class="ak-letter">${L[j]}</span><span>${esc(o)}</span>${j === x.answer ? `<span class="ak-tick">✓ Correct</span>` : ""}</li>`).join("")}
+          </ol>
+          ${x.answer < 0 ? `<p class="ak-none">No correct answer is marked for this question in the Google Form.</p>` : ""}
+          ${x.explain ? `<p class="ak-explain">${esc(x.explain)}</p>` : ""}
+          <button class="btn sm ak-reveal" data-reveal="${i}">Show answer</button>
+        </article>`).join("") : `<div class="panel empty"><strong>No multiple-choice questions found in this form</strong></div>`}
+    </div>`;
+
+  const ak = document.getElementById("ak");
+  const setMode = m => {
+    prefs.set("akMode", m);
+    ak.classList.toggle("revealed", m === "all");
+    ak.querySelectorAll(".ak-q").forEach(el => el.classList.remove("revealed"));
+    document.getElementById("mAll").className = "btn sm " + (m === "all" ? "" : "ghost");
+    document.getElementById("mOne").className = "btn sm " + (m === "one" ? "" : "ghost");
+    document.getElementById("mAll").setAttribute("aria-pressed", m === "all");
+    document.getElementById("mOne").setAttribute("aria-pressed", m === "one");
+  };
+  document.getElementById("mAll").onclick = () => setMode("all");
+  document.getElementById("mOne").onclick = () => setMode("one");
+  ak.querySelectorAll("[data-reveal]").forEach(b => b.onclick = () => b.closest(".ak-q").classList.add("revealed"));
+  const resize = d => {
+    const n = Math.max(13, Math.min(30, (Number(prefs.get("akSize", 16)) || 16) + d));
+    prefs.set("akSize", n); ak.style.setProperty("--ak-size", n + "px");
+  };
+  document.getElementById("smaller").onclick = () => resize(-2);
+  document.getElementById("bigger").onclick = () => resize(2);
+  document.getElementById("print").onclick = () => window.print();
+})();
+</script>
+</body>
+</html>

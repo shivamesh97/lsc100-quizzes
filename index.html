@@ -19,7 +19,7 @@ const { DEMO, CFG, esc, api, me, header, ls, token, TOKEN, ME } = Portal;
 const main = document.getElementById("main");
 const params = new URLSearchParams(location.search);
 const next = params.get("next");
-const safeNext = next && /^(quizzes|analytics|report|attendance|overview)\.html(\?[\w=&%.\-+]*)?$/.test(next) ? next : null;
+const safeNext = next && /^(quizzes|analytics|report|attendance|overview|answers)\.html(\?[\w=&%.\-+]*)?$/.test(next) ? next : null;
 
 function showSignIn(errorText) {
   header("signin", null);

@@ -92,6 +92,16 @@
         return res({ ok: true, students: studs, marks: Object.assign({}, reg[p.date] || {}), sessions, totals, saved: action === "saveAttendance" ? Object.keys(p.marks).length : undefined });
       }
       if (action === "overview") return res(overview());
+      if (action === "answerKey") {
+        // Demo only: a made-up sample key. Real answer keys come from the Google Forms via Apps Script and are never stored on the website.
+        const q = QUIZZES.find(x => x.id === p.quizId);
+        if (!q) return res({ error: "unknown_quiz" });
+        return res({ ok: true, quiz: { id: q.id, cls: q.cls, subject: q.subject, chapter: q.chapter, topic: q.topic, set: q.set, link: q.link }, questions: [
+          { q: "Sample question (demo): The basic structural and functional unit of life is the:", options: ["tissue", "cell", "organ", "organelle"], answer: 1, explain: "Real quizzes show the explanation saved in the Google Form here." },
+          { q: "Sample question (demo): Which of these is a eukaryote?", options: ["Bacterium", "Cyanobacterium", "Yeast", "Mycoplasma"], answer: 2, explain: "Yeast is a fungus, and fungi are eukaryotes." },
+          { q: "Sample question (demo): Photosynthesis takes place in the:", options: ["mitochondria", "nucleus", "ribosome", "chloroplast"], answer: 3, explain: "Chloroplasts contain chlorophyll." }
+        ] });
+      }
       if (action === "fixName") { RESP.forEach(r => { if (!r[7] && r[2].trim().toLowerCase() === String(p.typed).trim().toLowerCase()) r[7] = p.studentId; }); return res({ ok: true }); }
       res({ error: "unknown_action" });
     }, 250));

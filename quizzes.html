@@ -35,7 +35,7 @@ const day = d => new Date(d).toLocaleDateString("en-IN", { day: "numeric", month
     <div>
       <a href="index.html" class="meta">← All subjects</a>
       <h1>${esc(subject)} quizzes</h1>
-      <p class="lede">Open a chapter, find the topic and copy the quiz link or send it on WhatsApp.</p>
+      <p class="lede">Open a chapter, find the topic and copy the quiz link or send it on WhatsApp. Tap Answers to see the answer key and explain it in class.</p>
     </div>
     <div class="panel">
       <div class="toolbar">
@@ -89,6 +89,7 @@ function render() {
             <button class="btn sm ghost" data-copy="${esc(q.id)}">Copy link</button>
             <a class="btn sm accent" data-wa="${esc(q.id)}" href="#" target="_blank" rel="noopener">WhatsApp</a>
             <a class="btn sm ghost" href="${esc(q.link)}" target="_blank" rel="noopener" title="Open the form">Open</a>
+            <a class="btn sm ghost" href="answers.html?subject=${encodeURIComponent(subject)}&amp;quiz=${encodeURIComponent(q.id)}" title="Answer key for teachers">Answers</a>
             <span data-sent="${esc(q.id)}">${sentTag(q)}</span>
           </div>`).join("")}
         </div>

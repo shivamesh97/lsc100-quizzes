@@ -57,7 +57,10 @@
     subject_not_allowed: "You don't have access to this subject. Ask the centre to add it to your row in the Teachers sheet.",
     network: "Couldn't reach the server. Check your internet connection and try again.",
     bad_reply: "The server sent an unexpected reply. Check that the Apps Script web app is deployed with access set to Anyone.",
-    server: "The server hit an error. Try again in a minute."
+    server: "The server hit an error. Try again in a minute.",
+    unknown_quiz: "That quiz isn't on the portal any more. Go back to the quiz list and try again.",
+    form_missing: "Couldn't open this quiz's Google Form. It may have been deleted or moved to the bin.",
+    unknown_action: "The portal's server needs updating. Ask the admin to deploy the latest Apps Script version."
   };
   function fail(code, extra) { const e = new Error(MESSAGES[code] || extra || "Something went wrong."); e.code = code; return e; }
 
