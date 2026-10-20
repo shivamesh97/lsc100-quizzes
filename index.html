@@ -19,7 +19,7 @@ const { DEMO, CFG, esc, api, me, header, ls, token, TOKEN, ME } = Portal;
 const main = document.getElementById("main");
 const params = new URLSearchParams(location.search);
 const next = params.get("next");
-const safeNext = next && /^(quizzes|analytics|report|attendance|overview|answers)\.html(\?[\w=&%.\-+]*)?$/.test(next) ? next : null;
+const safeNext = next && /^(quizzes|analytics|report|attendance|overview|answers|users)\.html(\?[\w=&%.\-+]*)?$/.test(next) ? next : null;
 
 function showSignIn(errorText) {
   header("signin", null);
@@ -91,11 +91,18 @@ async function showHome() {
         <span class="label">Register</span><b>Attendance</b>
         <span class="meta">Mark who came to class</span>
         <span class="go">Take attendance →</span></a>
-      ${user.isAdmin ? `<a class="card alt" href="overview.html">
-        <span class="label">Admin</span><b>Overview</b>
-        <span class="meta">All subjects and classes in one place</span>
-        <span class="go">Open overview →</span></a>` : ""}
     </div>
+    ${user.isAdmin ? `<h2>Admin</h2>
+    <div class="cards">
+      <a class="card alt" href="overview.html">
+        <span class="label">Whole centre</span><b>Overview</b>
+        <span class="meta">All subjects and classes in one place</span>
+        <span class="go">Open overview →</span></a>
+      <a class="card alt" href="users.html">
+        <span class="label">Access</span><b>Users</b>
+        <span class="meta">Add or remove teachers and choose their subjects</span>
+        <span class="go">Manage users →</span></a>
+    </div>` : ""}
     <h2>Quizzes by subject</h2>
     <div class="cards">
       ${user.subjects.map(s => `<a class="card" href="quizzes.html?subject=${encodeURIComponent(s)}">

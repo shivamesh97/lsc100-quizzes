@@ -60,7 +60,14 @@
     server: "The server hit an error. Try again in a minute.",
     unknown_quiz: "That quiz isn't on the portal any more. Go back to the quiz list and try again.",
     form_missing: "Couldn't open this quiz's Google Form. It may have been deleted or moved to the bin.",
-    unknown_action: "The portal's server needs updating. Ask the admin to deploy the latest Apps Script version."
+    unknown_action: "The portal's server needs updating. Ask the admin to deploy the latest Apps Script version.",
+    not_admin: "Only admins can do this. Admins are users with access to all subjects.",
+    bad_email: "That doesn't look like an email address. Check it and try again.",
+    need_subject: "Choose at least one subject, or make this user an admin.",
+    user_exists: "This email is already on the list. Use Edit on their row instead.",
+    unknown_user: "That user isn't on the list any more. Refresh the page.",
+    self_lockout: "You can't remove your own admin access or turn off your own sign-in. Ask another admin to do it.",
+    self_remove: "You can't remove yourself. Ask another admin to do it."
   };
   function fail(code, extra) { const e = new Error(MESSAGES[code] || extra || "Something went wrong."); e.code = code; return e; }
 
@@ -68,7 +75,11 @@
   function goLogin() { location.href = "index.html?next=" + encodeURIComponent(here()); }
 
   async function api(action, params) {
-    if (DEMO) return window.PortalDemo.handle(action, params || {});
+    if (DEMO) {
+      const d = await window.PortalDemo.handle(action, params || {});
+      if (d && d.error) throw fail(d.error, d.message);
+      return d;
+    }
     const t = token();
     if (!t) { goLogin(); throw fail("signin", "Please sign in."); }
     let res;
@@ -125,7 +136,8 @@
           <a href="index.html" ${active === "subjects" ? 'aria-current="page"' : ""}>Subjects</a>
           <a href="attendance.html" ${active === "attendance" ? 'aria-current="page"' : ""}>Attendance</a>
           <a href="analytics.html" ${active === "analytics" ? 'aria-current="page"' : ""}>Analytics</a>
-          ${user.isAdmin ? `<a href="overview.html" ${active === "overview" ? 'aria-current="page"' : ""}>Overview</a>` : ""}
+          ${user.isAdmin ? `<a href="overview.html" ${active === "overview" ? 'aria-current="page"' : ""}>Overview</a>
+          <a href="users.html" ${active === "users" ? 'aria-current="page"' : ""}>Users</a>` : ""}
         </nav>` : ""}
         ${user && opts.classSwitch ? `<div class="classsw" role="group" aria-label="Class"><span class="classsw-label">Class</span>${CLASSES.map(c =>
           `<button type="button" data-class-btn="${esc(c)}" aria-pressed="${c === cls}" aria-label="Class ${esc(c)}">${esc(c)}</button>`).join("")}</div>` : ""}

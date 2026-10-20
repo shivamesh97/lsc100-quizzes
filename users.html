@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Users – Teacher Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Atkinson+Hyperlegible:wght@400;700&family=Kalam:wght@700&family=Nunito+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="assets/app.css">
+<script src="config.js"></script>
+<script src="assets/demo.js"></script>
+<script src="assets/app.js"></script>
+<style>
+/* Users page: an add/edit form on top, the list of teachers below */
+.u-form .grid2{gap:12px}
+.u-admin{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);cursor:pointer}
+.u-admin input{margin-top:3px;width:18px;height:18px;flex:none;accent-color:var(--accent)}
+.u-admin small{display:block;color:var(--muted);font-size:13px}
+.u-subj[aria-disabled="true"]{opacity:.45;pointer-events:none}
+.u-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.u-list{display:flex;flex-direction:column}
+.u-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:12px 4px;border-top:1px solid var(--line)}
+.u-row:first-child{border-top:0}
+.u-row.off .u-who{opacity:.6}
+.u-who{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.u-who b{overflow-wrap:anywhere}
+.u-who .meta{overflow-wrap:anywhere}
+.u-access{flex:2 1 240px;display:flex;flex-wrap:wrap;gap:6px}
+.u-btns{display:flex;gap:6px;margin-left:auto}
+.btn.danger{background:var(--bad);border-color:var(--bad);color:var(--surface)}
+@media (max-width:640px){.u-form .grid2{grid-template-columns:minmax(0,1fr)}.u-btns{margin-left:0}}
+</style>
+</head>
+<body>
+<main id="main"><p class="loading">Loading…</p></main>
+
+<script>
+const { esc, api, me, header, toast } = Portal;
+const main = document.getElementById("main");
+let USER, LIST = [], SUBJECTS = [], editing = null, query = "";
+
+(async function start() {
+  try { USER = await me(); } catch (e) { if (e.code !== "signin") main.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
+  header("users", USER);
+  if (!USER.isAdmin) {
+    main.innerHTML = `<div class="panel empty"><strong>Users is for admins</strong><span>Only users with access to all subjects can add or remove teachers.</span><a class="btn ghost" href="index.html">Back to home</a></div>`;
+    return;
+  }
+  main.innerHTML = `
+    <div>
+      <a href="index.html" class="meta">← Home</a>
+      <h1>Users</h1>
+      <p class="lede">Teachers who can sign in to the portal, and the subjects each one can see. Changes apply straight away.</p>
+    </div>
+    <form class="panel u-form" id="form" novalidate></form>
+    <section class="panel">
+      <div class="panel-head">
+        <h2 style="margin:0">Everyone with access <span class="meta" id="count"></span></h2>
+        <input class="input searchbox" id="q" type="search" placeholder="Search name or email" aria-label="Search users">
+      </div>
+      <div class="u-list" id="list"><p class="loading">Loading users…</p></div>
+    </section>`;
+  document.getElementById("q").oninput = e => { query = e.target.value.trim().toLowerCase(); renderList(); };
+  try { apply(await api("users")); }
+  catch (e) { if (e.code !== "signin") document.getElementById("list").innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
+  renderForm();
+})();
+
+function apply(data) { LIST = data.users || []; SUBJECTS = data.subjects || SUBJECTS; renderList(); }
+
+function renderForm() {
+  const f = document.getElementById("form");
+  const u = editing || { email: "", name: "", subjects: [], admin: false, active: true };
+  const isSelf = editing && editing.email === USER.email;
+  f.innerHTML = `
+    <h2 style="margin:0">${editing ? "Edit " + esc(u.name || u.email) : "Add a teacher"}</h2>
+    <div class="grid2">
+      <label class="field"><span class="label">Google email</span>
+        <input class="input" id="f-email" type="email" autocomplete="off" placeholder="name@gmail.com" value="${esc(u.email)}" ${editing ? "readonly" : ""} required></label>
+      <label class="field"><span class="label">Name</span>
+        <input class="input" id="f-name" type="text" autocomplete="off" placeholder="e.g. Priya Naik" value="${esc(u.name)}"></label>
+    </div>
+    ${editing ? `<p class="meta" style="margin:0">To change someone's email, remove them and add the new email.</p>` : ""}
+    <div class="field"><span class="label">Subjects</span>
+      <div class="chips u-subj" id="f-subj" aria-disabled="${u.admin}">${SUBJECTS.map(s =>
+        `<button type="button" class="chip" data-s="${esc(s)}" aria-pressed="${u.subjects.includes(s)}">${esc(s)}</button>`).join("")}</div>
+    </div>
+    <label class="u-admin"><input type="checkbox" id="f-admin" ${u.admin ? "checked" : ""} ${isSelf ? "disabled" : ""}>
+      <span><b>Admin</b><small>All subjects, plus the Overview and Users pages. Admins can add and remove users.</small></span></label>
+    ${editing && !isSelf ? `<label class="u-admin"><input type="checkbox" id="f-active" ${u.active ? "checked" : ""}>
+      <span><b>Can sign in</b><small>Untick to pause someone's access without removing them.</small></span></label>` : ""}
+    <div class="u-actions">
+      <button class="btn" type="submit" id="f-save">${editing ? "Save changes" : "Add teacher"}</button>
+      ${editing ? `<button class="btn ghost" type="button" id="f-cancel">Cancel</button>` : ""}
+      <span class="meta">They sign in with this Google account at the portal's address.</span>
+    </div>`;
+  const subj = document.getElementById("f-subj");
+  subj.querySelectorAll("[data-s]").forEach(b => b.onclick = () => b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"));
+  document.getElementById("f-admin").onchange = e => subj.setAttribute("aria-disabled", e.target.checked);
+  if (editing) document.getElementById("f-cancel").onclick = () => { editing = null; renderForm(); };
+  f.onsubmit = save;
+}
+
+async function save(ev) {
+  ev.preventDefault();
+  const btn = document.getElementById("f-save");
+  const active = document.getElementById("f-active");
+  const user = {
+    email: document.getElementById("f-email").value.trim(),
+    name: document.getElementById("f-name").value.trim(),
+    admin: document.getElementById("f-admin").checked,
+    subjects: [...document.querySelectorAll("#f-subj [aria-pressed=true]")].map(b => b.dataset.s),
+    active: active ? active.checked : (editing ? editing.active : true),
+    isNew: !editing
+  };
+  btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    apply(await api("saveUser", { user }));
+    toast(editing ? "Saved changes for " + (user.name || user.email) : "Added " + (user.name || user.email));
+    editing = null; renderForm();
+  } catch (e) {
+    if (e.code === "signin") return;
+    toast(e.message);
+    btn.disabled = false; btn.textContent = editing ? "Save changes" : "Add teacher";
+  }
+}
+
+function renderList() {
+  const el = document.getElementById("list");
+  document.getElementById("count").textContent = "· " + LIST.length;
+  const rows = LIST.filter(u => !query || (u.name + " " + u.email).toLowerCase().includes(query));
+  if (!rows.length) { el.innerHTML = `<div class="empty"><strong>${LIST.length ? "No one matches that search" : "No users yet"}</strong></div>`; return; }
+  el.innerHTML = rows.map(u => {
+    const self = u.email === USER.email;
+    return `<div class="u-row ${u.active ? "" : "off"}">
+      <div class="u-who"><b>${esc(u.name || "(no name)")}${self ? ` <span class="pill none">You</span>` : ""}</b><span class="meta">${esc(u.email)}</span></div>
+      <div class="u-access">
+        ${u.admin ? `<span class="pill good">Admin · all subjects</span>` : u.subjects.map(s => `<span class="pill none">${esc(s)}</span>`).join("")}
+        ${u.active ? "" : `<span class="pill warn">Can't sign in</span>`}
+      </div>
+      <div class="u-btns">
+        <button class="btn sm ghost" type="button" data-edit="${esc(u.email)}">Edit</button>
+        ${self ? "" : `<button class="btn sm ghost" type="button" data-remove="${esc(u.email)}">Remove</button>`}
+      </div>
+    </div>`;
+  }).join("");
+  el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
+    editing = LIST.find(u => u.email === b.dataset.edit) || null;
+    renderForm();
+    document.getElementById("form").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  el.querySelectorAll("[data-remove]").forEach(b => b.onclick = () => removeClick(b));
+}
+
+// Two taps to remove: the first turns the button red and asks to confirm
+async function removeClick(b) {
+  if (!b.classList.contains("danger")) {
+    b.classList.add("danger"); b.classList.remove("ghost"); b.textContent = "Tap again to remove";
+    setTimeout(() => { if (b.isConnected && b.textContent === "Tap again to remove") { b.classList.remove("danger"); b.classList.add("ghost"); b.textContent = "Remove"; } }, 4000);
+    return;
+  }
+  const email = b.dataset.remove, u = LIST.find(x => x.email === email);
+  b.disabled = true; b.textContent = "Removing…";
+  try {
+    apply(await api("removeUser", { email }));
+    if (editing && editing.email === email) { editing = null; renderForm(); }
+    toast("Removed " + (u && u.name || email));
+  } catch (e) { if (e.code !== "signin") { toast(e.message); renderList(); } }
+}
+</script>
+</body>
+</html>

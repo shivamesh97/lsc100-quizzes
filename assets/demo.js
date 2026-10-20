@@ -66,6 +66,13 @@
     return OV;
   }
   const ME = { email: "demo.teacher@gmail.com", name: "Demo Teacher", picture: "", isAdmin: true, subjects: ["Physics","Chemistry","Maths","Biology","Science","Psychology","Hindi"] };
+  // Sample Teachers list for the demo Users page
+  const USERS = [
+    { email: ME.email, name: ME.name, subjects: [], admin: true, active: true },
+    { email: "priya.naik@gmail.com", name: "Priya Naik", subjects: ["Biology"], admin: false, active: true },
+    { email: "rahul.desai@gmail.com", name: "Rahul Desai", subjects: ["Physics", "Maths"], admin: false, active: true },
+    { email: "old.teacher@gmail.com", name: "Sunita Kamat", subjects: ["Chemistry"], admin: false, active: false }
+  ];
   function handle(action, p) {
     return new Promise(res => setTimeout(() => {
       if (action === "me") {
@@ -92,6 +99,27 @@
         return res({ ok: true, students: studs, marks: Object.assign({}, reg[p.date] || {}), sessions, totals, saved: action === "saveAttendance" ? Object.keys(p.marks).length : undefined });
       }
       if (action === "overview") return res(overview());
+      if (action === "users" || action === "saveUser" || action === "removeUser") {
+        const ALL = ME.subjects;
+        if (action === "saveUser") {
+          const u = p.user || {}, email = String(u.email || "").trim().toLowerCase();
+          if (!/^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/.test(email)) return res({ error: "bad_email" });
+          const subjects = u.admin ? [] : ALL.filter(s => (u.subjects || []).includes(s));
+          if (!u.admin && !subjects.length) return res({ error: "need_subject" });
+          if (email === ME.email && (!u.admin || u.active === false)) return res({ error: "self_lockout" });
+          const at = USERS.findIndex(x => x.email === email);
+          if (u.isNew && at >= 0) return res({ error: "user_exists" });
+          const row = { email, name: String(u.name || "").trim(), subjects, admin: !!u.admin, active: u.active !== false };
+          if (at >= 0) USERS[at] = row; else USERS.push(row);
+        }
+        if (action === "removeUser") {
+          if (p.email === ME.email) return res({ error: "self_remove" });
+          const at = USERS.findIndex(x => x.email === p.email);
+          if (at < 0) return res({ error: "unknown_user" });
+          USERS.splice(at, 1);
+        }
+        return res({ ok: true, users: USERS.slice().sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email)), subjects: ALL });
+      }
       if (action === "answerKey") {
         // Demo only: a made-up sample key. Real answer keys come from the Google Forms via Apps Script and are never stored on the website.
         const q = QUIZZES.find(x => x.id === p.quizId);
