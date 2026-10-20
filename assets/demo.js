@@ -66,6 +66,18 @@
     return OV;
   }
   const ME = { email: "demo.teacher@gmail.com", name: "Demo Teacher", picture: "", isAdmin: true, subjects: ["Physics","Chemistry","Maths","Biology","Science","Psychology","Hindi"] };
+  // Two sample monthly tests for Biology, Class 11
+  const iso = d => new Date(Date.now() - d * 864e5).toISOString().slice(0, 10);
+  const TESTS = { "Biology|11": [
+    { id: "T1", name: "August monthly test", date: iso(62), outOf: 50, by: "Mrs. Fernandes" },
+    { id: "T2", name: "September monthly test", date: iso(30), outOf: 50, by: "Mrs. Fernandes" }
+  ] };
+  const TMARKS = { T1: {}, T2: {} };
+  ROSTER.forEach((s, i) => {
+    const ab = STUDENTS[i] ? STUDENTS[i][2] : 0.6;
+    TMARKS.T1[s.id] = i === 8 ? "AB" : Math.round(Math.min(50, ab * 50 + ((i * 7) % 9) - 4));
+    TMARKS.T2[s.id] = Math.round(Math.min(50, ab * 50 + ((i * 5) % 11) - 3));
+  });
   // Sample Teachers list for the demo Users page
   const USERS = [
     { email: ME.email, name: ME.name, subjects: [], admin: true, active: true },
@@ -99,6 +111,37 @@
         return res({ ok: true, students: studs, marks: Object.assign({}, reg[p.date] || {}), sessions, totals, saved: action === "saveAttendance" ? Object.keys(p.marks).length : undefined });
       }
       if (action === "overview") return res(overview());
+      if (action === "tests" || action === "saveTest" || action === "deleteTest") {
+        const k = p.subject + "|" + p.cls;
+        const studs = p.subject === "Biology" && p.cls === "11" ? ROSTER.map(s => ({ id: s.id, name: s.name, school: s.school })).sort((a, b) => a.name.localeCompare(b.name)) : [];
+        let savedId = null;
+        if (action === "saveTest") {
+          const t = p.test || {};
+          if (!String(t.name || "").trim()) return res({ error: "test_name" });
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(t.date || "")) return res({ error: "bad_date" });
+          const outOf = Number(t.outOf);
+          if (!(outOf > 0 && outOf <= 1000)) return res({ error: "bad_out_of" });
+          const m = {};
+          for (const [sid, v] of Object.entries(p.marks || {})) {
+            const raw = String(v ?? "").trim().toUpperCase();
+            if (!raw) continue;
+            if (raw === "AB") { m[sid] = "AB"; continue; }
+            const n = Number(raw);
+            if (!isFinite(n) || n < 0 || n > outOf) return res({ error: "bad_mark" });
+            m[sid] = n;
+          }
+          const list = TESTS[k] = TESTS[k] || [];
+          let row = t.id && list.find(x => x.id === t.id);
+          if (t.id && !row) return res({ error: "unknown_test" });
+          if (!row) { row = { id: "T" + Date.now(), by: ME.name }; list.push(row); }
+          Object.assign(row, { name: String(t.name).trim(), date: t.date, outOf });
+          TMARKS[row.id] = m; savedId = row.id;
+        }
+        if (action === "deleteTest") { TESTS[k] = (TESTS[k] || []).filter(x => x.id !== p.testId); delete TMARKS[p.testId]; }
+        const tests = (TESTS[k] || []).slice().sort((a, b) => a.date < b.date ? 1 : -1);
+        const marks = {}; tests.forEach(t => { if (TMARKS[t.id]) marks[t.id] = Object.assign({}, TMARKS[t.id]); });
+        return res({ ok: true, savedId, students: studs, tests: tests.map(t => Object.assign({}, t)), marks });
+      }
       if (action === "users" || action === "saveUser" || action === "removeUser") {
         const ALL = ME.subjects;
         if (action === "saveUser") {

@@ -36,7 +36,7 @@ button,input,select{font:inherit;color:inherit}
 
 /* top bar */
 .top{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
-.top-in{max-width:1120px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.top-in{max-width:1120px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:nowrap;position:relative}
 .brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);margin-right:auto;min-width:0}
 .brand .ring{flex:none;width:22px;height:22px;border-radius:50%;border:4px solid var(--accent)}
 .brand img.logo{height:36px;width:auto;max-width:140px;object-fit:contain;flex:none}
@@ -183,7 +183,10 @@ svg.schart .dot{fill:var(--muted);stroke:var(--sunk);stroke-width:2}
 /* phone bottom bar */
 .bottomnav{display:none}
 @media (max-width:700px){
-  .top .nav,.top .top-only,.who span{display:none}
+  .top .nav,.top .top-only,.brand small{display:none}
+  .brand b{font-size:16px}
+  .ctxbtn{padding:6px 10px;font-size:13px}
+  .pop.from-bottom{position:fixed;top:auto;bottom:calc(64px + env(safe-area-inset-bottom,0px));right:12px;left:12px;width:auto}
   .top-in{gap:10px}
   .bottomnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
   .bottomnav a,.bottomnav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 4px;font-size:12px;font-weight:700;color:var(--muted);text-decoration:none;background:none;border:0;cursor:pointer}
@@ -257,3 +260,42 @@ svg.trend polyline.s1{stroke:var(--s1)} svg.trend polyline.s2{stroke:var(--s2);s
 svg.trend circle{stroke:var(--surface);stroke-width:2} svg.trend circle.s1{fill:var(--s1)} svg.trend circle.s2{fill:var(--s2)}
 .legend .k-s1{width:18px;height:3px;background:var(--s1);border-radius:2px}
 .legend .k-s2{width:18px;height:0;border-top:3px dashed var(--s2)}
+
+/* header: subject and class button, account button, pop-up menus */
+.ctxbtn{display:inline-flex;align-items:center;gap:8px;min-width:0;border:1px solid var(--line);background:var(--accent-soft);color:var(--ink);border-radius:999px;padding:7px 14px;cursor:pointer;font-weight:700;font-size:14px;white-space:nowrap}
+.ctxbtn .ctx-s{overflow:hidden;text-overflow:ellipsis}
+.ctxbtn .ctx-c{color:var(--muted);font-weight:600}
+.ctxbtn .chev{color:var(--muted);font-size:12px}
+.ctxbtn[aria-expanded="true"]{border-color:var(--accent)}
+.avatar{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--sunk);color:var(--ink);font-weight:700;cursor:pointer;padding:0;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.avatar img{width:100%;height:100%;object-fit:cover}
+.avatar[aria-expanded="true"]{outline:2px solid var(--accent);outline-offset:1px}
+.pop{position:absolute;top:calc(100% + 4px);right:16px;z-index:20;width:min(360px,calc(100vw - 24px));background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.14);padding:14px;display:flex;flex-direction:column;gap:14px}
+.pop[hidden]{display:none}
+.pop .chip .meta{font-size:11px}
+.me-who{display:flex;flex-direction:column;gap:2px;align-items:flex-start;min-width:0}
+.me-who .meta{overflow-wrap:anywhere}
+.menu{display:flex;flex-direction:column;border-top:1px solid var(--line)}
+.menu a,.menu button{display:flex;align-items:center;gap:8px;text-align:left;width:100%;padding:11px 4px;border:0;border-bottom:1px solid var(--line);background:none;color:var(--ink);text-decoration:none;font-weight:600;cursor:pointer}
+.menu a:last-child,.menu button:last-child{border-bottom:0}
+.menu a[aria-current="page"]{color:var(--accent)}
+.phone-only{display:none!important}
+.bottomnav button[aria-current="page"]{color:var(--accent)}
+.admin-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line)}
+.admin-tabs a{padding:9px 14px;text-decoration:none;color:var(--muted);font-weight:700;border-bottom:3px solid transparent;margin-bottom:-1px}
+.admin-tabs a[aria-current="page"]{color:var(--ink);border-bottom-color:var(--accent)}
+@media (max-width:700px){.phone-only{display:flex!important}.top .brand>span:not(.ring){display:none}.top .brand img.logo{height:32px}.ctxbtn{flex:0 1 auto}}
+/* tappable list rows: used instead of wide tables so lists read well on phones */
+.rows{display:flex;flex-direction:column}
+.rowi{display:flex;align-items:center;gap:12px;width:100%;padding:12px 6px;border:0;border-top:1px solid var(--line);background:none;color:inherit;font:inherit;text-align:left;text-decoration:none}
+.rows>.rowi:first-child{border-top:0}
+button.rowi{cursor:pointer}
+button.rowi:hover{background:var(--sunk)}
+.rowi[aria-current="true"]{background:var(--accent-soft)}
+.rowi .main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.rowi .main .pills{display:flex;flex-wrap:wrap;gap:4px}
+.rowi .side{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:4px;text-align:right}
+.rowi .go-arrow{flex:none;color:var(--muted);font-size:18px}
+.big{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+.back{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;border:0;background:none;color:var(--accent);font-weight:700;cursor:pointer;padding:0;text-decoration:none}
+.page-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:12px}

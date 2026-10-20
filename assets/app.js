@@ -33,6 +33,7 @@
   function setClass(c) {
     prefsSet("class", c);
     document.querySelectorAll("[data-class-btn]").forEach(b => b.setAttribute("aria-pressed", b.dataset.classBtn === c));
+    document.querySelectorAll(".ctx-c").forEach(x => { x.textContent = "Class " + c; });
     document.dispatchEvent(new CustomEvent("portal:class", { detail: c }));
   }
   function prefsGet(k, d) { try { const v = JSON.parse(ls.get("tp_pref_" + k)); return v == null ? d : v; } catch (e) { return d; } }
@@ -67,7 +68,13 @@
     user_exists: "This email is already on the list. Use Edit on their row instead.",
     unknown_user: "That user isn't on the list any more. Refresh the page.",
     self_lockout: "You can't remove your own admin access or turn off your own sign-in. Ask another admin to do it.",
-    self_remove: "You can't remove yourself. Ask another admin to do it."
+    self_remove: "You can't remove yourself. Ask another admin to do it.",
+    test_name: "Give the test a name, e.g. October monthly test.",
+    bad_date: "Choose the date of the test.",
+    bad_out_of: "Enter what the test is out of, e.g. 50.",
+    bad_mark: "One of the marks is more than the test is out of, or isn't a number. Check the boxes marked in red.",
+    unknown_test: "That test isn't on the portal any more. It may have been deleted. Refresh the page.",
+    busy: "Someone else is saving at the same moment. Wait a few seconds and save again."
   };
   function fail(code, extra) { const e = new Error(MESSAGES[code] || extra || "Something went wrong."); e.code = code; return e; }
 
@@ -123,56 +130,109 @@
     document.head.appendChild(icon);
   }
 
-  // opts.classSwitch: show the Class 11 / Class 12 switch (pages that filter by class)
+  // ---------- subject shared by every page (the "Biology · Class 11" button in the header) ----------
+  function getSubject(user) {
+    const list = (user && user.subjects) || [];
+    const s = prefsGet("subject", "");
+    if (list.includes(s)) return s;
+    const counts = (user && user.quizCounts) || {};
+    return list.find(x => counts[x] > 0) || list[0] || "";
+  }
+  function setSubject(s) { prefsSet("subject", s); }
+
+  // [key, page, label, phone icon]
+  const NAV = [
+    ["home", "index.html", "Home", "⌂"],
+    ["quizzes", "quizzes.html", "Quizzes", "▤"],
+    ["attendance", "attendance.html", "Attendance", "☑"],
+    ["tests", "tests.html", "Tests", "✎"],
+    ["results", "analytics.html", "Results", "▥"],
+    ["admin", "overview.html", "Admin", "◫"]
+  ];
+
+  // active: home | quizzes | attendance | tests | results | admin
+  // opts.context: show the subject and class button (pages that work on one subject and class).
+  // Changing the subject reloads the page; changing the class fires "portal:class".
   function header(active, user, opts) {
     opts = opts || {};
-    const cls = getClass();
+    const cur = k => active === k ? 'aria-current="page"' : "";
+    const subj = user ? getSubject(user) : "";
+    const counts = (user && user.quizCounts) || {};
+    const initial = user ? String(user.name || user.email || "?").trim().charAt(0).toUpperCase() : "";
     const el = document.createElement("header");
     el.className = "top";
     el.innerHTML =
       `<div class="top-in">
         <a class="brand" href="index.html">${logoHtml("logo")}<span><b>${esc(CFG.CENTRE_NAME || "Teacher Portal")}</b><small>Teacher Portal</small></span></a>
-        ${user ? `<nav class="nav" aria-label="Main">
-          <a href="index.html" ${active === "subjects" ? 'aria-current="page"' : ""}>Subjects</a>
-          <a href="attendance.html" ${active === "attendance" ? 'aria-current="page"' : ""}>Attendance</a>
-          <a href="analytics.html" ${active === "analytics" ? 'aria-current="page"' : ""}>Analytics</a>
-          ${user.isAdmin ? `<a href="overview.html" ${active === "overview" ? 'aria-current="page"' : ""}>Overview</a>
-          <a href="users.html" ${active === "users" ? 'aria-current="page"' : ""}>Users</a>` : ""}
-        </nav>` : ""}
-        ${user && opts.classSwitch ? `<div class="classsw" role="group" aria-label="Class"><span class="classsw-label">Class</span>${CLASSES.map(c =>
-          `<button type="button" data-class-btn="${esc(c)}" aria-pressed="${c === cls}" aria-label="Class ${esc(c)}">${esc(c)}</button>`).join("")}</div>` : ""}
-        <div class="who">
-          ${user && user.picture ? `<img src="${esc(user.picture)}" alt="" referrerpolicy="no-referrer">` : ""}
-          ${user ? `<span>${esc(user.name || user.email)}</span>` : ""}
-          <button class="linkbtn" type="button" data-theme-btn title="Theme: ${getTheme()} (click to change)">${themeLabel(getTheme())}</button>
-          ${user ? `<button class="linkbtn top-only" id="signout" type="button">Sign out</button>` : ""}
-        </div>
+        ${user ? `<nav class="nav" aria-label="Main">${NAV.filter(n => n[0] !== "home" && (n[0] !== "admin" || user.isAdmin))
+          .map(n => `<a href="${n[1]}" ${cur(n[0])}>${n[2]}</a>`).join("")}</nav>` : ""}
+        ${user && opts.context && subj ? `<button type="button" class="ctxbtn" id="ctx-btn" aria-expanded="false" aria-controls="ctx-pop" title="Change subject or class">
+          <span class="ctx-s">${esc(subj)}</span><span class="ctx-c">Class ${esc(getClass())}</span><span class="chev" aria-hidden="true">▾</span></button>` : ""}
+        ${user ? `<button type="button" class="avatar" id="me-btn" aria-expanded="false" aria-controls="me-pop" aria-label="Your account and settings">${user.picture
+          ? `<img src="${esc(user.picture)}" alt="" referrerpolicy="no-referrer">` : esc(initial)}</button>`
+          : `<button class="linkbtn" type="button" data-theme-btn>${themeLabel(getTheme())}</button>`}
+        ${user && opts.context && subj ? `<div class="pop" id="ctx-pop" hidden>
+          <div class="field"><span class="label">Subject</span><div class="chips">${user.subjects.map(s =>
+            `<button type="button" class="chip" data-subj="${esc(s)}" aria-pressed="${s === subj}">${esc(s)}${counts[s] ? ` <span class="meta">${counts[s]}</span>` : ""}</button>`).join("")}</div></div>
+          <div class="field"><span class="label">Class</span><div class="chips">${CLASSES.map(c =>
+            `<button type="button" class="chip" data-class-btn="${esc(c)}" aria-pressed="${c === getClass()}">Class ${esc(c)}</button>`).join("")}</div></div>
+        </div>` : ""}
+        ${user ? `<div class="pop" id="me-pop" hidden>
+          <div class="me-who"><b>${esc(user.name || user.email)}</b><span class="meta">${esc(user.email || "")}</span>${user.isAdmin ? `<span class="pill good">Admin</span>` : ""}</div>
+          <div class="menu">
+            <a class="phone-only" href="analytics.html" ${cur("results")}>▥ Results</a>
+            ${user.isAdmin ? `<a class="phone-only" href="overview.html" ${cur("admin")}>◫ Admin: overview and users</a>` : ""}
+            <button type="button" data-theme-btn>${themeLabel(getTheme())}</button>
+            <button type="button" id="signout">Sign out</button>
+          </div>
+        </div>` : ""}
       </div>`;
     document.body.prepend(el);
     if (user) {
-      // Bottom bar on phones
+      // Bottom bar on phones: the four everyday pages, then More (Results, Admin, theme, sign out)
       const bn = document.createElement("nav");
       bn.className = "bottomnav"; bn.setAttribute("aria-label", "Main");
-      bn.innerHTML = `
-        <a href="index.html" ${active === "subjects" ? 'aria-current="page"' : ""}><span aria-hidden="true">▤</span>Subjects</a>
-        <a href="attendance.html" ${active === "attendance" ? 'aria-current="page"' : ""}><span aria-hidden="true">☑</span>Attendance</a>
-        <a href="analytics.html" ${active === "analytics" ? 'aria-current="page"' : ""}><span aria-hidden="true">▥</span>Analytics</a>
-        ${user.isAdmin ? `<a href="overview.html" ${active === "overview" ? 'aria-current="page"' : ""}><span aria-hidden="true">◫</span>Overview</a>` : ""}
-        <button type="button" id="signout2"><span aria-hidden="true">⇥</span>Sign out</button>`;
+      bn.innerHTML = NAV.slice(0, 4).map(n => `<a href="${n[1]}" ${cur(n[0])}><span aria-hidden="true">${n[2] === "Home" ? "⌂" : n[3]}</span>${n[2]}</a>`).join("") +
+        `<button type="button" id="more-btn" aria-expanded="false" aria-controls="me-pop" ${active === "results" || active === "admin" ? 'aria-current="page"' : ""}><span aria-hidden="true">⋯</span>More</button>`;
       document.body.appendChild(bn);
       document.body.classList.add("has-bottomnav");
-      bn.querySelector("#signout2").onclick = signOut;
     }
+
+    // Pop-up menus: one open at a time; tap outside or press Escape to close
+    const pops = [["ctx-btn", "ctx-pop"], ["me-btn", "me-pop"], ["more-btn", "me-pop"]];
+    function closeAll() {
+      pops.forEach(([b, p]) => { const bb = document.getElementById(b), pp = document.getElementById(p); if (bb) bb.setAttribute("aria-expanded", "false"); if (pp) pp.hidden = true; });
+    }
+    pops.forEach(([b, p]) => {
+      const bb = document.getElementById(b), pp = document.getElementById(p);
+      if (!bb || !pp) return;
+      bb.onclick = e => {
+        e.stopPropagation();
+        const open = pp.hidden;
+        closeAll();
+        if (open) { pp.hidden = false; bb.setAttribute("aria-expanded", "true"); pp.classList.toggle("from-bottom", b === "more-btn"); }
+      };
+      pp.onclick = e => e.stopPropagation();
+    });
+    document.addEventListener("click", closeAll);
+    document.addEventListener("keydown", e => { if (e.key === "Escape") closeAll(); });
+
     el.querySelectorAll("[data-theme-btn]").forEach(b => b.onclick = cycleTheme);
-    el.querySelectorAll("[data-class-btn]").forEach(b => b.onclick = () => setClass(b.dataset.classBtn));
+    el.querySelectorAll("[data-class-btn]").forEach(b => b.onclick = () => { setClass(b.dataset.classBtn); closeAll(); });
+    el.querySelectorAll("[data-subj]").forEach(b => b.onclick = () => {
+      closeAll();
+      if (b.dataset.subj === getSubject(user)) return;
+      setSubject(b.dataset.subj);
+      location.reload();
+    });
+    const so = el.querySelector("#signout");
+    if (so) so.onclick = signOut;
     if (DEMO) {
       const d = document.createElement("div");
       d.className = "demo-bar";
       d.textContent = "Demo mode: showing sample data. Add your Client ID and web app URL in config.js to connect the real portal.";
       el.after(d);
     }
-    const so = el.querySelector("#signout");
-    if (so) so.onclick = signOut;
   }
 
   let toastTimer;
@@ -207,5 +267,5 @@
     setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
 
-  window.Portal = { getClass, setClass, CLASSES, downloadCsv, logoHtml, CFG, DEMO, TOKEN, ME, ls, token, payload, api, me, signOut, header, esc, natural, toast, copy, prefs, goLogin };
+  window.Portal = { getSubject, setSubject, getClass, setClass, CLASSES, downloadCsv, logoHtml, CFG, DEMO, TOKEN, ME, ls, token, payload, api, me, signOut, header, esc, natural, toast, copy, prefs, goLogin };
 })();

@@ -41,15 +41,18 @@ let USER, LIST = [], SUBJECTS = [], editing = null, query = "";
 
 (async function start() {
   try { USER = await me(); } catch (e) { if (e.code !== "signin") main.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
-  header("users", USER);
+  header("admin", USER);
   if (!USER.isAdmin) {
     main.innerHTML = `<div class="panel empty"><strong>Users is for admins</strong><span>Only users with access to all subjects can add or remove teachers.</span><a class="btn ghost" href="index.html">Back to home</a></div>`;
     return;
   }
   main.innerHTML = `
     <div>
-      <a href="index.html" class="meta">← Home</a>
-      <h1>Users</h1>
+      <h1>Admin</h1>
+    </div>
+    <nav class="admin-tabs" aria-label="Admin"><a href="overview.html">Overview</a><a href="users.html" aria-current="page">Users</a></nav>
+    <div>
+      <h2>Users</h2>
       <p class="lede">Teachers who can sign in to the portal, and the subjects each one can see. Changes apply straight away.</p>
     </div>
     <form class="panel u-form" id="form" novalidate></form>

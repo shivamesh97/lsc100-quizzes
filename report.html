@@ -26,7 +26,7 @@ let student = null;
 (async function start() {
   let user;
   try { user = await me(); } catch (e) { if (e.code !== "signin") main.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
-  header("analytics", user);
+  header("results", user);
   if (!user.subjects.includes(subject)) { main.innerHTML = `<div class="panel empty"><strong>This report isn't available</strong><span>You don't have access to ${esc(subject || "this subject")}.</span><a class="btn ghost" href="analytics.html">Back to analytics</a></div>`; return; }
   let data;
   try { data = await api("analytics", { subject }); }

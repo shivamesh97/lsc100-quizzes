@@ -53,10 +53,10 @@ const L = "ABCDEFGH";
 (async function start() {
   let user;
   try { user = await me(); } catch (e) { if (e.code !== "signin") main.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
-  header("subjects", user);
+  header("quizzes", user);
   const back = `quizzes.html?subject=${encodeURIComponent(subject)}`;
   if (!subject || !quizId) {
-    main.innerHTML = `<div class="empty"><strong>Choose a quiz first</strong><a class="btn ghost" href="index.html">Back to subjects</a></div>`;
+    main.innerHTML = `<div class="empty"><strong>Choose a quiz first</strong><a class="btn ghost" href="quizzes.html">Back to quizzes</a></div>`;
     return;
   }
   main.innerHTML = `<p class="loading">Loading the answer key…</p>`;

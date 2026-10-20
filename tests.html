@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Monthly tests – Teacher Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Atkinson+Hyperlegible:wght@400;700&family=Kalam:wght@700&family=Nunito+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="assets/app.css">
+<script src="config.js"></script>
+<script src="assets/demo.js"></script>
+<script src="assets/app.js"></script>
+<style>
+/* Monthly tests: test details, then one row per student with a marks box and an Absent button */
+.t-details{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr);gap:12px}
+.mk-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
+.mk-entry{display:flex;align-items:center;gap:8px}
+.mk-entry .input{width:84px;text-align:right;font-variant-numeric:tabular-nums;font-size:16px}
+.mk-entry .input.bad{border-color:var(--bad);background:var(--bad-soft)}
+.mk-entry .of{color:var(--muted);font-size:14px;min-width:3.2em}
+.mk-ab{border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:8px;padding:8px 10px;font-weight:700;cursor:pointer;min-width:46px}
+.mk-ab[aria-pressed="true"]{background:var(--bad-soft);color:var(--bad);border-color:var(--bad)}
+.t-stats{display:flex;flex-wrap:wrap;gap:8px}
+.t-sum th{white-space:nowrap}
+.t-sum td.r{white-space:nowrap}
+.danger{background:var(--bad)!important;border-color:var(--bad)!important;color:var(--surface)!important}
+@media (max-width:640px){.t-details{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.t-details .wide{grid-column:1/-1}}
+</style>
+</head>
+<body>
+<main id="main"><p class="loading">Loading…</p></main>
+
+<script>
+const { esc, api, me, header, prefs, toast, copy, natural } = Portal;
+const main = document.getElementById("main");
+const pad = n => String(n).padStart(2, "0");
+const isoToday = () => { const d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); };
+const niceDate = iso => { const p = String(iso).split("-").map(Number); return p.length === 3 ? new Date(p[0], p[1] - 1, p[2]).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : iso; };
+const monthName = () => new Date().toLocaleDateString("en-IN", { month: "long" });
+const fmt = n => String(Math.round(n * 10) / 10);
+
+let user, subject = "", data = null, open = null, draft = null, savedDraft = "", busy = false;
+
+(async function start() {
+  try { user = await me(); } catch (e) { if (e.code !== "signin") main.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
+  header("tests", user, { context: true });
+  subject = Portal.getSubject(user);
+  main.innerHTML = `<div id="body" style="display:flex;flex-direction:column;gap:16px"><p class="loading">Loading tests…</p></div>`;
+  document.addEventListener("portal:class", () => { open = null; draft = null; load(); });
+  window.addEventListener("beforeunload", e => { if (dirty()) { e.preventDefault(); e.returnValue = ""; } });
+  load();
+})();
+
+function dirty() { return !!draft && JSON.stringify(draft) !== savedDraft; }
+function leaveOk() { return !dirty() || window.confirm("You have unsaved marks. Leave without saving?"); }
+
+async function load() {
+  const body = document.getElementById("body");
+  body.innerHTML = `<p class="loading">Loading tests…</p>`;
+  try { data = await api("tests", { subject, cls: Portal.getClass() }); }
+  catch (e) { if (e.code !== "signin") body.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
+  if (open && open !== "new" && !data.tests.some(t => t.id === open)) open = null;
+  startDraft();
+  render();
+}
+
+function startDraft() {
+  if (!open) { draft = null; savedDraft = ""; return; }
+  if (open === "new") {
+    draft = { id: "", name: monthName() + " monthly test", date: isoToday(), outOf: "", marks: {} };
+    savedDraft = JSON.stringify({ id: "", name: draft.name, date: draft.date, outOf: "", marks: {} });
+    return;
+  }
+  const t = data.tests.find(x => x.id === open);
+  const m = {};
+  Object.entries(data.marks[t.id] || {}).forEach(([k, v]) => { m[k] = String(v); });
+  draft = { id: t.id, name: t.name, date: t.date, outOf: String(t.outOf), marks: m };
+  savedDraft = JSON.stringify(draft);
+}
+
+// ---------- numbers ----------
+function scoreOf(v, outOf) { const n = Number(v); return v !== "" && v !== "AB" && isFinite(n) && outOf > 0 ? n / outOf : null; }
+function markValid(v, outOf) {
+  if (v === "" || v === "AB") return true;
+  const n = Number(v);
+  return isFinite(n) && n >= 0 && (!(outOf > 0) || n <= outOf);
+}
+function statsOf(marks, outOf, students) {
+  const nums = [], ab = [];
+  students.forEach(s => { const v = marks[s.id]; if (v === "AB") ab.push(s); else if (v !== undefined && v !== "" && isFinite(Number(v))) nums.push(Number(v)); });
+  const avg = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
+  return { n: nums.length, ab: ab.length, avg, hi: nums.length ? Math.max(...nums) : null, lo: nums.length ? Math.min(...nums) : null, blank: students.length - nums.length - ab.length };
+}
+
+// ---------- page ----------
+// Two screens: the list (tabs: Tests / By student) and, when a test is open, the marks screen on its own.
+let tab = prefs.get("tests_tab", "tests");
+function render() {
+  const body = document.getElementById("body");
+  const cls = Portal.getClass();
+  if (!data.students.length) {
+    body.innerHTML = headHtml(false) + `<div class="panel empty"><strong>No Class ${esc(cls)} students take ${esc(subject)}</strong><span>Add them in the Students tab of the database sheet, with ${esc(subject)} in their Subjects. Or pick another class with the button at the top.</span></div>`;
+    return;
+  }
+  body.innerHTML = open ? editorHtml() : headHtml(true) + `
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="tests" aria-selected="${tab === "tests"}">Tests <span class="meta">${data.tests.length}</span></button>
+      <button class="tab" role="tab" data-tab="students" aria-selected="${tab === "students"}">By student</button>
+    </div>
+    ${tab === "students" ? summaryHtml() : listHtml()}`;
+  wire();
+}
+
+function headHtml(withButton) {
+  return `<div class="page-head">
+    <div><h1>Monthly tests</h1><p class="lede">${esc(subject)} · Class ${esc(Portal.getClass())}. Add a test to enter marks, or open one to check or correct it.</p></div>
+    ${withButton ? `<button class="btn accent" type="button" id="new-test">+ New test</button>` : ""}
+  </div>`;
+}
+
+function listHtml() {
+  const students = data.students;
+  if (!data.tests.length) return `<div class="panel empty"><strong>Enter your first test</strong><span>Tap + New test, type what it's out of, then each student's marks.</span></div>`;
+  return `<section class="panel" style="padding:6px 12px"><div class="rows">${data.tests.map(t => {
+    const st = statsOf(data.marks[t.id] || {}, t.outOf, students);
+    const p = st.avg == null ? null : Math.round(st.avg / t.outOf * 100);
+    const done = st.n + st.ab;
+    return `<button type="button" class="rowi" data-open="${esc(t.id)}">
+      <span class="main"><strong>${esc(t.name)}</strong>
+        <span class="meta">${esc(niceDate(t.date))} · out of ${esc(t.outOf)}</span>
+        <span>${done < students.length ? `<span class="pill warn">${done} of ${students.length} entered</span>` : `<span class="pill good">All ${students.length} entered</span>`}</span></span>
+      <span class="side">${p == null ? `<span class="meta">No marks yet</span>` : `<span class="big">${p}%</span><span class="meta">class average</span><span class="mini" aria-hidden="true" style="margin:0"><i style="width:${p}%"></i></span>`}</span>
+      <span class="go-arrow" aria-hidden="true">›</span>
+    </button>`;
+  }).join("")}</div></section>`;
+}
+
+function editorHtml() {
+  const students = data.students, outOf = Number(draft.outOf);
+  const dupes = {};
+  students.forEach(s => { dupes[s.name] = (dupes[s.name] || 0) + 1; });
+  return `<button type="button" class="back" id="close">← All tests</button>
+  <div class="page-head">
+    <div><h1>${draft.id ? esc(draft.name) : "New test"}</h1><p class="lede">${esc(subject)} · Class ${esc(Portal.getClass())}</p></div>
+    ${draft.id ? `<button class="btn sm ghost" type="button" id="del-test">Delete test</button>` : ""}
+  </div>
+  <section class="panel" id="editor">
+    <div class="t-details">
+      <label class="field wide"><span class="label">Test name</span><input class="input" id="d-name" value="${esc(draft.name)}" maxlength="80" placeholder="October monthly test"></label>
+      <label class="field"><span class="label">Date</span><input class="input" id="d-date" type="date" value="${esc(draft.date)}"></label>
+      <label class="field"><span class="label">Out of</span><input class="input" id="d-out" inputmode="decimal" value="${esc(draft.outOf)}" placeholder="50"></label>
+    </div>
+    <div class="t-stats" id="stats" role="status"></div>
+    <div>${students.map((s, i) => {
+      const v = draft.marks[s.id] || "";
+      return `<div class="mk-row">
+        <div style="min-width:0"><strong>${esc(s.name)}</strong>${dupes[s.name] > 1 ? ` <span class="meta">${esc(s.id)}</span>` : ""}${s.school ? `<div class="meta">${esc(s.school)}</div>` : ""}</div>
+        <div class="mk-entry">
+          <input class="input mk ${markValid(v, outOf) ? "" : "bad"}" data-id="${esc(s.id)}" data-i="${i}" inputmode="decimal" enterkeyhint="next" autocomplete="off"
+            aria-label="Marks for ${esc(s.name)}" value="${v === "AB" ? "" : esc(v)}" ${v === "AB" ? "disabled" : ""} placeholder="${v === "AB" ? "AB" : "–"}">
+          <span class="of">/ ${outOf > 0 ? esc(draft.outOf) : "?"}</span>
+          <button type="button" class="mk-ab" data-ab="${esc(s.id)}" aria-pressed="${v === "AB"}" aria-label="Absent: ${esc(s.name)}" title="Absent">AB</button>
+        </div></div>`;
+    }).join("")}</div>
+    <div class="att-save">
+      <button class="btn accent" type="button" id="save">Save marks</button>
+      <span class="meta" id="save-note"></span>
+    </div>
+  </section>`;
+}
+
+function summaryHtml() {
+  const students = data.students;
+  const tests = data.tests.slice(0, 6).reverse(); // last 6 tests, oldest first
+  if (!tests.length) return `<div class="panel empty"><strong>No tests yet</strong><span>Each student's marks across tests appear here once you've entered a test.</span></div>`;
+  const rows = students.map(s => {
+    const cells = tests.map(t => { const v = (data.marks[t.id] || {})[s.id]; return { t, v, p: scoreOf(v === undefined ? "" : String(v), t.outOf) }; });
+    const ps = cells.map(c => c.p).filter(p => p != null);
+    return { s, cells, avg: ps.length ? ps.reduce((a, b) => a + b, 0) / ps.length : null };
+  }).sort((a, b) => (b.avg ?? -1) - (a.avg ?? -1) || natural(a.s.name, b.s.name));
+  return `<section class="panel" style="padding:6px 12px 12px">
+    <div class="panel-head" style="padding:8px 4px 4px"><span class="meta">Best average first${data.tests.length > 6 ? " · last 6 tests" : ""}. Below 40% is flagged.</span>
+      <button class="btn sm ghost" type="button" id="csv">Download CSV</button></div>
+    <div class="rows">${rows.map(r => `<div class="rowi">
+      <span class="main"><strong>${esc(r.s.name)}</strong>
+        <span class="pills">${r.cells.map(c => `<span class="pill ${c.v === "AB" ? "warn" : "none"}" title="${esc(c.t.name)}">${esc(shortName(c.t))} ${c.v === "AB" ? "AB" : c.p == null ? "—" : Math.round(c.p * 100) + "%"}</span>`).join("")}</span></span>
+      <span class="side">${r.avg == null ? `<span class="meta">—</span>` : `<span class="big">${Math.round(r.avg * 100)}%</span>`}${r.avg != null && r.avg < 0.4 ? `<span class="pill bad">⚠ Low</span>` : r.avg != null ? `<span class="meta">average</span>` : ""}</span>
+    </div>`).join("")}</div>
+  </section>`;
+}
+function shortName(t) { return t.name.replace(/\s*monthly test\s*/i, "").trim() || niceDate(t.date); }
+
+// ---------- events ----------
+function wire() {
+  const body = document.getElementById("body");
+  const nb = document.getElementById("new-test");
+  if (nb) nb.onclick = () => { open = "new"; startDraft(); render(); window.scrollTo(0, 0); document.getElementById("d-out").focus(); };
+  body.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { open = b.dataset.open; startDraft(); render(); window.scrollTo(0, 0); });
+  body.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { tab = b.dataset.tab; prefs.set("tests_tab", tab); render(); });
+  const csv = document.getElementById("csv");
+  if (csv) csv.onclick = downloadCsv;
+  if (!open) return;
+
+  document.getElementById("d-name").oninput = e => { draft.name = e.target.value; refresh(); };
+  document.getElementById("d-date").oninput = e => { draft.date = e.target.value; refresh(); };
+  document.getElementById("d-out").oninput = e => {
+    draft.outOf = e.target.value.trim();
+    document.querySelectorAll(".mk-entry .of").forEach(x => x.textContent = "/ " + (Number(draft.outOf) > 0 ? draft.outOf : "?"));
+    refresh();
+  };
+  const inputs = [...document.querySelectorAll("input.mk")];
+  inputs.forEach(inp => {
+    inp.oninput = () => {
+      const v = inp.value.trim();
+      if (/^a(b)?$/i.test(v)) { setAb(inp.dataset.id, true); return; } // typing "ab" marks absent
+      if (v) draft.marks[inp.dataset.id] = v; else delete draft.marks[inp.dataset.id];
+      refresh();
+    };
+    inp.onkeydown = e => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const next = inputs.slice(Number(inp.dataset.i) + 1).find(x => !x.disabled);
+      if (next) next.focus(); else document.getElementById("save").focus();
+    };
+  });
+  document.querySelectorAll("[data-ab]").forEach(b => b.onclick = () => setAb(b.dataset.ab, b.getAttribute("aria-pressed") !== "true"));
+  document.getElementById("save").onclick = save;
+  document.getElementById("close").onclick = () => { if (!leaveOk()) return; open = null; startDraft(); render(); window.scrollTo(0, 0); };
+  const del = document.getElementById("del-test");
+  if (del) del.onclick = () => deleteClick(del);
+  refresh();
+}
+
+function setAb(id, on) {
+  const inp = document.querySelector(`input.mk[data-id="${CSS.escape(id)}"]`);
+  const btn = document.querySelector(`[data-ab="${CSS.escape(id)}"]`);
+  if (on) { draft.marks[id] = "AB"; inp.value = ""; inp.disabled = true; inp.placeholder = "AB"; }
+  else { delete draft.marks[id]; inp.disabled = false; inp.placeholder = "–"; inp.focus(); }
+  btn.setAttribute("aria-pressed", on);
+  refresh();
+}
+
+// Update the counts, red boxes and Save button without re-drawing the list (keeps typing smooth)
+function refresh() {
+  const students = data.students, outOf = Number(draft.outOf);
+  let bad = 0;
+  document.querySelectorAll("input.mk").forEach(inp => {
+    const v = draft.marks[inp.dataset.id] || "";
+    const ok = markValid(v, outOf);
+    inp.classList.toggle("bad", !ok);
+    if (!ok) bad++;
+  });
+  const st = statsOf(draft.marks, outOf, students);
+  const p = v => outOf > 0 ? ` (${Math.round(v / outOf * 100)}%)` : "";
+  document.getElementById("stats").innerHTML = `
+    <span class="pill good">${st.n} marked</span>
+    ${st.ab ? `<span class="pill bad">${st.ab} absent</span>` : ""}
+    ${st.blank ? `<span class="pill none">${st.blank} blank</span>` : ""}
+    ${st.avg != null ? `<span class="pill none">Average ${fmt(st.avg)}${p(st.avg)}</span><span class="pill none">Highest ${fmt(st.hi)}</span><span class="pill none">Lowest ${fmt(st.lo)}</span>` : ""}`;
+  let problem = "";
+  if (!draft.name.trim()) problem = "Give the test a name.";
+  else if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date)) problem = "Choose the date of the test.";
+  else if (!(outOf > 0 && outOf <= 1000)) problem = "Enter what the test is out of.";
+  else if (bad) problem = `${bad} mark${bad === 1 ? " is" : "s are"} more than ${draft.outOf} or not a number (shown in red).`;
+  const btn = document.getElementById("save");
+  btn.disabled = !!problem || !dirty() || busy;
+  document.getElementById("save-note").textContent = problem || (!dirty() ? (draft.id ? "All saved." : "") : st.blank ? `${st.blank} student${st.blank === 1 ? "" : "s"} still blank. You can save now and fill them in later.` : "");
+}
+
+async function save() {
+  if (busy) return;
+  busy = true;
+  const btn = document.getElementById("save");
+  btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    const wasNew = !draft.id;
+    data = await api("saveTest", { subject, cls: Portal.getClass(), test: { id: draft.id, name: draft.name.trim(), date: draft.date, outOf: Number(draft.outOf) }, marks: draft.marks });
+    open = data.savedId || null;
+    busy = false;
+    startDraft(); render();
+    toast(wasNew ? "Test saved." : "Changes saved.");
+  } catch (e) {
+    busy = false;
+    if (e.code === "signin") return;
+    btn.textContent = "Save marks"; refresh();
+    toast(e.message);
+  }
+}
+
+async function deleteClick(b) {
+  if (!b.classList.contains("danger")) {
+    b.classList.add("danger"); b.textContent = "Tap again to delete test and its marks";
+    setTimeout(() => { if (b.isConnected && b.classList.contains("danger")) { b.classList.remove("danger"); b.textContent = "Delete test"; } }, 4000);
+    return;
+  }
+  b.disabled = true; b.textContent = "Deleting…";
+  try {
+    data = await api("deleteTest", { subject, cls: Portal.getClass(), testId: draft.id });
+    open = null; startDraft(); render(); toast("Test deleted.");
+  } catch (e) { if (e.code !== "signin") { toast(e.message); b.disabled = false; b.textContent = "Delete test"; b.classList.remove("danger"); } }
+}
+
+function downloadCsv() {
+  const tests = data.tests.slice().reverse();
+  const head = ["Student", "Student ID", "School"].concat(tests.map(t => `${t.name} (${niceDate(t.date)}, out of ${t.outOf})`));
+  const rows = data.students.map(s => [s.name, s.id, s.school || ""].concat(tests.map(t => { const v = (data.marks[t.id] || {})[s.id]; return v === undefined ? "" : v; })));
+  Portal.downloadCsv(`${subject} Class ${Portal.getClass()} monthly tests.csv`, [head].concat(rows));
+}
+</script>
+</body>
+</html>

@@ -25,14 +25,16 @@ let data = null, cls = prefs.get("ov_cls", "all"), period = prefs.get("ov_period
 (async function start() {
   let user;
   try { user = await me(); } catch (e) { if (e.code !== "signin") main.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
-  header("overview", user);
+  header("admin", user);
   if (!user.isAdmin) {
-    main.innerHTML = `<div class="panel empty"><strong>The Overview is for admins</strong><span>It's available to teachers whose Subjects are set to "All" in the Teachers sheet.</span><a class="btn ghost" href="index.html">Back to subjects</a></div>`;
+    main.innerHTML = `<div class="panel empty"><strong>The Overview is for admins</strong><span>It's available to teachers whose Subjects are set to "All" in the Teachers sheet.</span><a class="btn ghost" href="index.html">Back to home</a></div>`;
     return;
   }
   main.innerHTML = `
+    <div><h1>Admin</h1></div>
+    <nav class="admin-tabs" aria-label="Admin"><a href="overview.html" aria-current="page">Overview</a><a href="users.html">Users</a></nav>
     <div class="panel-head">
-      <div><h1>Overview</h1><p class="lede">All subjects and classes in one place: quiz scores, attendance, students who need attention and what teachers have done this week.</p></div>
+      <div><h2>Overview</h2><p class="lede">All subjects and classes in one place: quiz scores, attendance, students who need attention and what teachers have done this week.</p></div>
       <span class="meta" id="sync"></span>
     </div>
     <div class="panel"><div class="toolbar">

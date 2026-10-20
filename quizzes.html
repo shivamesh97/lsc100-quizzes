@@ -17,25 +17,27 @@
 <script>
 const { esc, api, me, header, natural, toast, copy, prefs } = Portal;
 const main = document.getElementById("main");
-const subject = new URLSearchParams(location.search).get("subject") || "";
+let subject = new URLSearchParams(location.search).get("subject") || "";
 let quizzes = [], query = "";
 const day = d => new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 
 (async function start() {
   let user;
   try { user = await me(); } catch (e) { if (e.code !== "signin") main.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
-  header("subjects", user, { classSwitch: true });
+  if (user.subjects.includes(subject)) Portal.setSubject(subject);
+  if (location.search) history.replaceState(null, "", "quizzes.html");
+  subject = Portal.getSubject(user);
+  header("quizzes", user, { context: true });
   document.addEventListener("portal:class", () => render());
-  if (!user.subjects.includes(subject)) {
-    main.innerHTML = `<div class="empty"><strong>Choose a subject first</strong><a class="btn ghost" href="index.html">Back to subjects</a></div>`;
+  if (!subject) {
+    main.innerHTML = `<div class="panel empty"><strong>No subjects on your account yet</strong><span>Ask an admin to add your subjects on the Users page.</span></div>`;
     return;
   }
   document.title = subject + " quizzes – Teacher Portal";
   main.innerHTML = `
     <div>
-      <a href="index.html" class="meta">← All subjects</a>
       <h1>${esc(subject)} quizzes</h1>
-      <p class="lede">Open a chapter, find the topic and copy the quiz link or send it on WhatsApp. Tap Answers to see the answer key and explain it in class.</p>
+      <p class="lede">Open a chapter, find the topic and copy the quiz link or send it on WhatsApp. Tap Answers to see the answer key. Change subject or class with the button at the top.</p>
     </div>
     <div class="panel">
       <div class="toolbar">

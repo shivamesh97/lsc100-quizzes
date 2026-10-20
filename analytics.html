@@ -26,9 +26,8 @@ let tab = ["students", "topics"].includes(location.hash.slice(1)) ? location.has
 
 (async function start() {
   try { user = await me(); } catch (e) { if (e.code !== "signin") main.innerHTML = `<div class="notice bad">${esc(e.message)}</div>`; return; }
-  header("analytics", user, { classSwitch: true });
-  const saved = prefs.get("an_subject", ""), counts = user.quizCounts || {};
-  F.subject = user.subjects.includes(saved) ? saved : (user.subjects.find(s => counts[s] > 0) || user.subjects[0]);
+  header("results", user, { context: true });
+  F.subject = Portal.getSubject(user);
   main.innerHTML = `
     <div class="panel-head">
       <div><h1>Analytics</h1><p class="lede">Each student's first attempt at each quiz counts, so retakes don't hide what they knew the first time.</p></div>
@@ -38,11 +37,9 @@ let tab = ["students", "topics"].includes(location.hash.slice(1)) ? location.has
       </div>
     </div>
     <div class="panel"><div class="toolbar">
-      <div class="field"><label class="label" for="f-subject">Subject</label><select class="input" id="f-subject">${user.subjects.map(s => `<option ${s === F.subject ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
       <div class="field"><label class="label" for="f-chapter">Chapter</label><select class="input" id="f-chapter"></select></div>
     </div></div>
     <div id="body"><p class="loading">Loading results…</p></div>`;
-  document.getElementById("f-subject").onchange = e => { F.subject = e.target.value; prefs.set("an_subject", F.subject); F.chapter = ""; load(); };
   document.getElementById("f-chapter").onchange = e => { F.chapter = e.target.value; pickedStudent = pickedQuiz = null; render(); };
   document.getElementById("refresh").onclick = () => load(true);
   document.addEventListener("portal:class", () => { F.chapter = ""; pickedStudent = pickedQuiz = null; if (data) render(); });
